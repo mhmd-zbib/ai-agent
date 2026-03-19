@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.shared.exceptions import AuthenticationError
 
 
 class FakeChatService:
@@ -35,12 +36,24 @@ class FakeChatService:
         return
 
 
+class FakeUserService:
+    def get_user_from_token(self, token: str):
+        if token != "good-token":
+            raise AuthenticationError("Invalid or expired token.")
+        return {"id": "user-1", "email": "test@example.com"}
+
+
 def test_chat_roundtrip() -> None:
     app = create_app()
     app.state.chat_service = FakeChatService()
+    app.state.user_service = FakeUserService()
     client = TestClient(app)
 
-    first = client.post("/v1/agent/chat", json={"message": "hello"})
+    first = client.post(
+        "/v1/agent/chat",
+        json={"message": "hello"},
+        headers={"Authorization": "Bearer good-token"},
+    )
     assert first.status_code == 200
     first_json = first.json()
     assert first_json["reply"] == "echo: hello"
@@ -51,6 +64,7 @@ def test_chat_roundtrip() -> None:
     second = client.post(
         "/v1/agent/chat",
         json={"session_id": session_id, "message": "how are you?"},
+        headers={"Authorization": "Bearer good-token"},
     )
     assert second.status_code == 200
     second_json = second.json()
@@ -61,11 +75,29 @@ def test_chat_roundtrip() -> None:
 def test_reset_session() -> None:
     app = create_app()
     app.state.chat_service = FakeChatService()
+    app.state.user_service = FakeUserService()
     client = TestClient(app)
 
-    first = client.post("/v1/agent/chat", json={"message": "hello"})
+    first = client.post(
+        "/v1/agent/chat",
+        json={"message": "hello"},
+        headers={"Authorization": "Bearer good-token"},
+    )
     session_id = first.json()["session_id"]
-    response = client.delete(f"/v1/agent/sessions/{session_id}")
+    response = client.delete(
+        f"/v1/agent/sessions/{session_id}",
+        headers={"Authorization": "Bearer good-token"},
+    )
 
     assert response.status_code == 200
     assert response.json() == {"session_id": session_id, "cleared": True}
+
+
+def test_chat_requires_auth() -> None:
+    app = create_app()
+    app.state.chat_service = FakeChatService()
+    app.state.user_service = FakeUserService()
+    client = TestClient(app)
+
+    response = client.post("/v1/agent/chat", json={"message": "hello"})
+    assert response.status_code == 401

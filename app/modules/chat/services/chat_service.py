@@ -29,7 +29,7 @@ class ChatService:
         )
         self._memory_service.append_message(
             session_id,
-            MemoryEntry(role="assistant", content=agent_output.message),
+            MemoryEntry(role="assistant",    content=agent_output.message),
         )
 
         updated_state = self._memory_service.get_session_state(session_id)

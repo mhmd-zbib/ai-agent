@@ -9,7 +9,7 @@ class ChatHistoryItem(BaseModel):
     created_at: datetime
 
 
-class ChatResponse(BaseModel):
+class   ChatResponse(BaseModel):
     session_id: str
     reply: str
     history: list[ChatHistoryItem]

@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from redis import Redis
+from sqlalchemy.engine import Engine
 
 from app.modules.agent.llm.openai_client import OpenAIClient
 from app.modules.agent.services.agent_service import AgentService
@@ -13,13 +15,16 @@ from app.modules.memory.repositories.short_term_repository import ShortTermRepos
 from app.modules.memory.services.memory_service import MemoryService
 from app.modules.tools import get_tool_registry
 from app.modules.users.router import router as users_router
+from app.modules.users.repositories.user_repository import UserRepository
+from app.modules.users.services.auth_service import AuthService
+from app.modules.users.services.user_service import UserService
 from app.shared.config import Settings, get_settings
 from app.shared.db.postgres import create_postgres_engine
 from app.shared.db.redis import create_redis_client
 from app.shared.exceptions import ConfigurationError, register_exception_handlers
 
 
-def create_chat_service(settings: Settings) -> ChatService:
+def _create_infrastructure(settings: Settings) -> tuple[Engine, Redis]:
     if not settings.database_url:
         raise ConfigurationError("DATABASE_URL is required.")
     if not settings.redis_url:
@@ -32,7 +37,14 @@ def create_chat_service(settings: Settings) -> ChatService:
         pool_timeout_seconds=settings.postgres_pool_timeout_seconds,
     )
     redis_client = create_redis_client(settings.redis_url)
+    return postgres_engine, redis_client
 
+
+def create_chat_service(
+    settings: Settings,
+    postgres_engine: Engine,
+    redis_client: Redis,
+) -> ChatService:
     long_term_repository = LongTermRepository(postgres_engine)
     long_term_repository.ensure_schema()
     short_term_repository = ShortTermRepository(
@@ -56,16 +68,46 @@ def create_chat_service(settings: Settings) -> ChatService:
     return ChatService(agent_service=agent_service, memory_service=memory_service)
 
 
-def _startup_chat_service(app: FastAPI, settings: Settings) -> None:
+def create_user_service(settings: Settings, postgres_engine: Engine) -> UserService:
+    auth_service = AuthService(
+        secret_key=settings.jwt_secret_key or "",
+        algorithm=settings.jwt_algorithm,
+        access_token_expire_minutes=settings.jwt_access_token_expire_minutes,
+    )
+    user_repository = UserRepository(postgres_engine)
+    user_repository.ensure_schema()
+    return UserService(repository=user_repository, auth_service=auth_service)
+
+
+def _startup_services(app: FastAPI, settings: Settings) -> None:
     # Lifespan startup must be idempotent across test clients/reloads.
+    if not hasattr(app.state, "postgres_engine") or not hasattr(app.state, "redis_client"):
+        postgres_engine, redis_client = _create_infrastructure(settings)
+        app.state.postgres_engine = postgres_engine
+        app.state.redis_client = redis_client
+
     if not hasattr(app.state, "chat_service"):
-        app.state.chat_service = create_chat_service(settings)
+        app.state.chat_service = create_chat_service(
+            settings=settings,
+            postgres_engine=app.state.postgres_engine,
+            redis_client=app.state.redis_client,
+        )
+
+    if not hasattr(app.state, "user_service"):
+        app.state.user_service = create_user_service(
+            settings=settings,
+            postgres_engine=app.state.postgres_engine,
+        )
 
 
-def _shutdown_chat_service(app: FastAPI) -> None:
+def _shutdown_services(app: FastAPI) -> None:
     chat_service = getattr(app.state, "chat_service", None)
     if chat_service is not None:
         chat_service.close()
+
+    user_service = getattr(app.state, "user_service", None)
+    if user_service is not None:
+        user_service.close()
 
 
 def create_app() -> FastAPI:
@@ -73,11 +115,11 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        _startup_chat_service(app, settings)
+        _startup_services(app, settings)
         try:
             yield
         finally:
-            _shutdown_chat_service(app)
+            _shutdown_services(app)
 
     app = FastAPI(
         title=settings.app_name,
@@ -107,4 +149,4 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-__all__ = ["app", "create_app", "create_chat_service"]
+__all__ = ["app", "create_app", "create_chat_service", "create_user_service"]

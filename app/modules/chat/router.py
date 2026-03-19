@@ -2,9 +2,13 @@ from fastapi import APIRouter, Depends
 
 from app.modules.chat.schemas import ChatRequest, ChatResponse, SessionResetResponse
 from app.modules.chat.services.chat_service import ChatService
-from app.shared.deps import get_chat_service
+from app.shared.deps import get_chat_service, get_current_user
 
-router = APIRouter(prefix="/v1/agent", tags=["agent"])
+router = APIRouter(
+    prefix="/v1/agent",
+    tags=["agent"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -21,4 +25,3 @@ async def reset_session(
     chat_service: ChatService = Depends(get_chat_service),
 ) -> SessionResetResponse:
     return chat_service.reset_session(session_id)
-
