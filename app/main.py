@@ -56,6 +56,7 @@ def _create_llm_client(settings: Settings) -> BaseLLM:
     if provider == "openai":
         return OpenAIClient(
             api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
             model=settings.openai_model,
             system_prompt=settings.agent_system_prompt,
         )
@@ -83,10 +84,8 @@ def create_chat_service(
     )
 
     llm_client = _create_llm_client(settings)
-    tool_executor = ToolExecutor(get_tool_registry())
-    agent_service = AgentService(llm=llm_client, tool_executor=tool_executor)
 
-    return ChatService(agent_service=agent_service, memory_service=memory_service)
+    return ChatService(llm=llm_client, memory_service=memory_service)
 
 
 def create_user_service(settings: Settings, postgres_engine: Engine) -> UserService:

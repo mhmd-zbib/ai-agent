@@ -3,6 +3,8 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.shared.constants import DEFAULT_SYSTEM_PROMPT
+
 
 class Settings(BaseSettings):
     app_name: str = "Agent Assistant API"
@@ -10,8 +12,13 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
+    openai_base_url: str | None = Field(
+        default=None,
+        alias="OPENAI_BASE_URL",
+        description="Custom base URL for OpenAI-compatible APIs (e.g., Ollama, Azure)",
+    )
     agent_system_prompt: str = Field(
-        default="You are a helpful software engineering assistant.",
+        default=DEFAULT_SYSTEM_PROMPT,
         alias="AGENT_SYSTEM_PROMPT",
     )
     llm_provider: str = Field(default="ollama", alias="LLM_PROVIDER")

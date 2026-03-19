@@ -1,3 +1,4 @@
+from datetime import datetime, UTC
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -22,7 +23,14 @@ class FakeChatService:
         history.append({"role": "assistant", "content": reply})
         return {
             "session_id": payload.session_id,
-            "reply": reply,
+            "type": "text",
+            "content": reply,
+            "tool_action": None,
+            "metadata": {
+                "confidence": 1.0,
+                "sources": None,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
         }
 
     def reset_session(self, session_id: str):
@@ -61,8 +69,11 @@ def test_chat_roundtrip() -> None:
     )
     assert first.status_code == 200
     first_json = first.json()
-    assert first_json["reply"] == "echo: hello"
+    assert first_json["content"] == "echo: hello"
     assert first_json["session_id"] == session_id
+    assert first_json["type"] == "text"
+    assert first_json["tool_action"] is None
+    assert "metadata" in first_json
     assert "history" not in first_json
 
     second = client.post(
@@ -73,7 +84,7 @@ def test_chat_roundtrip() -> None:
     assert second.status_code == 200
     second_json = second.json()
     assert second_json["session_id"] == session_id
-    assert second_json["reply"] == "echo: how are you?"
+    assert second_json["content"] == "echo: how are you?"
 
 
 def test_reset_session() -> None:

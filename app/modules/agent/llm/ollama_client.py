@@ -1,30 +1,44 @@
 from __future__ import annotations
 
 import json
-from urllib import error, request
+
+from openai import OpenAI
+from pydantic import ValidationError
 
 from app.modules.agent.llm.base import BaseLLM
-from app.modules.agent.schemas import AgentInput, AgentOutput
+from app.modules.agent.schemas import AgentInput
 from app.shared.exceptions import UpstreamServiceError
 from app.shared.logging import get_logger
+from app.shared.schemas import AIResponse
 
 logger = get_logger(__name__)
 
 
 class OllamaClient(BaseLLM):
     def __init__(self, host: str, model: str, system_prompt: str) -> None:
-        self._host = host.rstrip("/")
+        # Ensure host ends with /v1 for OpenAI-compatible endpoint
+        base_url = host.rstrip("/")
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+        
+        # Initialize OpenAI client with Ollama endpoint
+        self._client = OpenAI(
+            api_key="ollama",  # Ollama doesn't require real API key
+            base_url=base_url
+        )
         self._model = model
         self._system_prompt = system_prompt
+        
         logger.info(
-            "OllamaClient initialized",
+            "OllamaClient initialized with OpenAI SDK",
             extra={
-                "host": self._host,
+                "base_url": base_url,
                 "model": self._model,
             },
         )
 
-    def generate(self, payload: AgentInput) -> AgentOutput:
+    def generate(self, payload: AgentInput) -> AIResponse:
+        # Build message array (same as OpenAI client)
         messages = [{"role": "system", "content": self._system_prompt}]
         messages.extend(
             {"role": item["role"], "content": item["content"]}
@@ -32,86 +46,58 @@ class OllamaClient(BaseLLM):
         )
         messages.append({"role": "user", "content": payload.user_message})
 
-        request_payload = {
-            "model": self._model,
-            "messages": messages,
-            "stream": False,
-        }
-
-        http_request = request.Request(
-            url=f"{self._host}/api/chat",
-            data=json.dumps(request_payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
         logger.debug(
-            "Sending request to Ollama",
+            "Sending request to Ollama via OpenAI SDK",
             extra={
-                "host": self._host,
                 "model": self._model,
                 "message_count": len(messages),
             },
         )
 
         try:
-            with request.urlopen(http_request, timeout=60) as response:  # noqa: S310
-                raw_response = response.read().decode("utf-8")
-        except error.URLError as exc:
-            logger.error(
-                "Failed to reach Ollama host",
+            # Use OpenAI SDK with JSON mode
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+            
+            # Extract content
+            ai_content = response.choices[0].message.content or ""
+            
+            logger.debug(
+                "Received response from Ollama",
                 extra={
-                    "host": self._host,
-                    "error": str(exc),
-                },
-                exc_info=True,
+                    "content_length": len(ai_content),
+                }
+            )
+            
+            # Parse and validate AIResponse
+            ai_response_data = json.loads(ai_content)
+            return AIResponse(**ai_response_data)
+            
+        except ValidationError as e:
+            logger.error(
+                "Invalid AIResponse schema from Ollama",
+                extra={"validation_error": str(e)},
             )
             raise UpstreamServiceError(
-                f"Failed to reach Ollama at {self._host}. Please ensure Ollama is running."
-            ) from exc
-        except Exception as exc:  # noqa: BLE001
+                f"Ollama returned invalid response format: {e}"
+            ) from e
+        except json.JSONDecodeError as e:
             logger.error(
-                "Failed to generate response from Ollama",
-                extra={
-                    "error": str(exc),
-                    "error_type": type(exc).__name__,
-                },
-                exc_info=True,
+                "Invalid JSON from Ollama",
+                extra={"json_error": str(e), "content": ai_content[:200]},
             )
             raise UpstreamServiceError(
-                "Failed to generate a response from Ollama. Please try again."
-            ) from exc
-
-        try:
-            parsed = json.loads(raw_response)
-        except json.JSONDecodeError as exc:
+                f"Ollama returned invalid JSON: {e}"
+            ) from e
+        except Exception as e:
             logger.error(
-                "Ollama returned invalid JSON",
-                extra={
-                    "raw_response": raw_response[:500],  # Log first 500 chars
-                },
-                exc_info=True,
+                "Error calling Ollama via OpenAI SDK",
+                extra={"error": str(e)},
             )
             raise UpstreamServiceError(
-                "Ollama returned an invalid JSON response."
-            ) from exc
-
-        text = str(parsed.get("message", {}).get("content", "")).strip()
-        if not text:
-            logger.warning(
-                "Ollama returned empty response",
-                extra={
-                    "parsed_response": parsed,
-                },
-            )
-            raise UpstreamServiceError("Ollama returned an empty response.")
-
-        logger.info(
-            "Successfully generated response from Ollama",
-            extra={
-                "response_length": len(text),
-            },
-        )
-
-        return AgentOutput(message=text)
+                f"Failed to generate response from Ollama: {e}"
+            ) from e
 

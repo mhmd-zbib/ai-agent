@@ -19,7 +19,6 @@ class MemoryService:
         persisted = self._long_term_repository.get_messages(session_id)
         self._short_term_repository.set_messages(session_id, persisted)
         return SessionState(session_id=session_id, messages=persisted)
-
     def append_message(self, session_id: str, entry: MemoryEntry) -> None:
         self._long_term_repository.append_message(session_id, entry)
         refreshed = self._long_term_repository.get_messages(session_id)
