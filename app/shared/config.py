@@ -1,0 +1,43 @@
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    app_name: str = "Agent Assistant API"
+    app_version: str = "0.1.0"
+
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
+    agent_system_prompt: str = Field(
+        default="You are a helpful software engineering assistant.",
+        alias="AGENT_SYSTEM_PROMPT",
+    )
+
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
+    redis_chat_cache_ttl_seconds: int = Field(
+        default=3600,
+        alias="REDIS_CHAT_CACHE_TTL_SECONDS",
+    )
+
+    postgres_pool_size: int = Field(default=5, alias="POSTGRES_POOL_SIZE")
+    postgres_max_overflow: int = Field(default=10, alias="POSTGRES_MAX_OVERFLOW")
+    postgres_pool_timeout_seconds: int = Field(
+        default=30,
+        alias="POSTGRES_POOL_TIMEOUT_SECONDS",
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        populate_by_name=True,
+        extra="ignore",
+    )
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()
+

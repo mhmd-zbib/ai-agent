@@ -1,0 +1,34 @@
+# Test your FastAPI endpoints
+
+# Health check
+GET http://127.0.0.1:8000/health
+Accept: application/json
+
+###
+
+# Start a chat turn (copy session_id from response)
+POST http://127.0.0.1:8000/v1/agent/chat
+Content-Type: application/json
+Accept: application/json
+
+{
+  "message": "Hey agent, give me a 3-step plan to learn FastAPI."
+}
+
+###
+
+# Continue the same chat using session_id from previous response
+POST http://127.0.0.1:8000/v1/agent/chat
+Content-Type: application/json
+Accept: application/json
+
+{
+  "session_id": "replace-with-session-id",
+  "message": "Now make it a weekly schedule."
+}
+
+###
+
+# Reset a session when done
+DELETE http://127.0.0.1:8000/v1/agent/sessions/replace-with-session-id
+Accept: application/json
