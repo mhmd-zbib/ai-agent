@@ -1,15 +1,19 @@
 from datetime import UTC, datetime, timedelta
+import hashlib
 
+import bcrypt
 import jwt
 from jwt import InvalidTokenError
-from passlib.context import CryptContext
 
 from app.modules.users.schemas.response import TokenResponse
 from app.shared.exceptions import AuthenticationError, ConfigurationError
 
 
 class AuthService:
-    _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    # Pre-hash passwords so bcrypt always receives fixed-size input (<72 bytes).
+    @staticmethod
+    def _prehash_password(password: str) -> bytes:
+        return hashlib.sha256(password.encode("utf-8")).digest()
 
     def __init__(
         self,
@@ -25,10 +29,15 @@ class AuthService:
         self._access_token_expire_minutes = access_token_expire_minutes
 
     def hash_password(self, password: str) -> str:
-        return self._pwd_context.hash(password)
+        prehashed = self._prehash_password(password)
+        return bcrypt.hashpw(prehashed, bcrypt.gensalt()).decode("utf-8")
 
     def verify_password(self, plain_password: str, password_hash: str) -> bool:
-        return self._pwd_context.verify(plain_password, password_hash)
+        prehashed = self._prehash_password(plain_password)
+        try:
+            return bcrypt.checkpw(prehashed, password_hash.encode("utf-8"))
+        except ValueError:
+            return False
 
     def create_token(self, user_id: str) -> TokenResponse:
         now = datetime.now(UTC)

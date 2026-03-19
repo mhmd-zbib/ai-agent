@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -8,23 +10,19 @@ class FakeChatService:
     def __init__(self) -> None:
         self._history: dict[str, list[dict[str, str]]] = {}
 
+    def create_session(self):
+        session_id = str(uuid4())
+        self._history.setdefault(session_id, [])
+        return {"session_id": session_id}
+
     def reply(self, payload):
-        session_id = payload.session_id or "test-session"
-        history = self._history.setdefault(session_id, [])
+        history = self._history.setdefault(payload.session_id, [])
         history.append({"role": "user", "content": payload.message})
         reply = f"echo: {payload.message}"
         history.append({"role": "assistant", "content": reply})
         return {
-            "session_id": session_id,
+            "session_id": payload.session_id,
             "reply": reply,
-            "history": [
-                {
-                    "role": item["role"],
-                    "content": item["content"],
-                    "created_at": "2026-01-01T00:00:00+00:00",
-                }
-                for item in history
-            ],
         }
 
     def reset_session(self, session_id: str):
@@ -49,17 +47,23 @@ def test_chat_roundtrip() -> None:
     app.state.user_service = FakeUserService()
     client = TestClient(app)
 
+    session_response = client.post(
+        "/v1/agent/sessions",
+        headers={"Authorization": "Bearer good-token"},
+    )
+    assert session_response.status_code == 201
+    session_id = session_response.json()["session_id"]
+
     first = client.post(
         "/v1/agent/chat",
-        json={"message": "hello"},
+        json={"session_id": session_id, "message": "hello"},
         headers={"Authorization": "Bearer good-token"},
     )
     assert first.status_code == 200
     first_json = first.json()
     assert first_json["reply"] == "echo: hello"
-    session_id = first_json["session_id"]
-    assert session_id
-    assert len(first_json["history"]) == 2
+    assert first_json["session_id"] == session_id
+    assert "history" not in first_json
 
     second = client.post(
         "/v1/agent/chat",
@@ -69,7 +73,7 @@ def test_chat_roundtrip() -> None:
     assert second.status_code == 200
     second_json = second.json()
     assert second_json["session_id"] == session_id
-    assert len(second_json["history"]) == 4
+    assert second_json["reply"] == "echo: how are you?"
 
 
 def test_reset_session() -> None:
@@ -78,12 +82,17 @@ def test_reset_session() -> None:
     app.state.user_service = FakeUserService()
     client = TestClient(app)
 
-    first = client.post(
-        "/v1/agent/chat",
-        json={"message": "hello"},
+    session_response = client.post(
+        "/v1/agent/sessions",
         headers={"Authorization": "Bearer good-token"},
     )
-    session_id = first.json()["session_id"]
+    session_id = session_response.json()["session_id"]
+
+    client.post(
+        "/v1/agent/chat",
+        json={"session_id": session_id, "message": "hello"},
+        headers={"Authorization": "Bearer good-token"},
+    )
     response = client.delete(
         f"/v1/agent/sessions/{session_id}",
         headers={"Authorization": "Bearer good-token"},
@@ -99,5 +108,5 @@ def test_chat_requires_auth() -> None:
     app.state.user_service = FakeUserService()
     client = TestClient(app)
 
-    response = client.post("/v1/agent/chat", json={"message": "hello"})
+    response = client.post("/v1/agent/chat", json={"session_id": "s1", "message": "hello"})
     assert response.status_code == 401

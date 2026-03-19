@@ -1,16 +1,15 @@
 from app.modules.chat.schemas.request import ChatRequest
 from app.modules.chat.schemas.response import (
-    ChatHistoryItem,
     ChatResponse,
+    SessionCreateResponse,
     SessionResetResponse,
     StreamChunk,
 )
 
 __all__ = [
     "ChatRequest",
-    "ChatHistoryItem",
+    "SessionCreateResponse",
     "ChatResponse",
     "StreamChunk",
     "SessionResetResponse",
 ]
-

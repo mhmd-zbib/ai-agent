@@ -5,7 +5,9 @@ from fastapi import FastAPI
 from redis import Redis
 from sqlalchemy.engine import Engine
 
+from app.modules.agent.llm.base import BaseLLM
 from app.modules.agent.llm.openai_client import OpenAIClient
+from app.modules.agent.llm.ollama_client import OllamaClient
 from app.modules.agent.services.agent_service import AgentService
 from app.modules.agent.services.tool_executor import ToolExecutor
 from app.modules.chat.router import router as chat_router
@@ -22,6 +24,9 @@ from app.shared.config import Settings, get_settings
 from app.shared.db.postgres import create_postgres_engine
 from app.shared.db.redis import create_redis_client
 from app.shared.exceptions import ConfigurationError, register_exception_handlers
+from app.shared.logging import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 
 def _create_infrastructure(settings: Settings) -> tuple[Engine, Redis]:
@@ -38,6 +43,26 @@ def _create_infrastructure(settings: Settings) -> tuple[Engine, Redis]:
     )
     redis_client = create_redis_client(settings.redis_url)
     return postgres_engine, redis_client
+
+
+def _create_llm_client(settings: Settings) -> BaseLLM:
+    provider = settings.llm_provider.lower().strip()
+    if provider == "ollama":
+        return OllamaClient(
+            host=settings.ollama_host,
+            model=settings.ollama_model,
+            system_prompt=settings.agent_system_prompt,
+        )
+    if provider == "openai":
+        return OpenAIClient(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            system_prompt=settings.agent_system_prompt,
+        )
+
+    raise ConfigurationError(
+        "Unsupported LLM_PROVIDER. Supported values: 'ollama', 'openai'."
+    )
 
 
 def create_chat_service(
@@ -57,11 +82,7 @@ def create_chat_service(
         long_term_repository=long_term_repository,
     )
 
-    llm_client = OpenAIClient(
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
-        system_prompt=settings.agent_system_prompt,
-    )
+    llm_client = _create_llm_client(settings)
     tool_executor = ToolExecutor(get_tool_registry())
     agent_service = AgentService(llm=llm_client, tool_executor=tool_executor)
 
@@ -112,6 +133,7 @@ def _shutdown_services(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_logging(settings.log_level)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -149,4 +171,10 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-__all__ = ["app", "create_app", "create_chat_service", "create_user_service"]
+__all__ = [
+    "app",
+    "create_app",
+    "create_chat_service",
+    "create_user_service",
+    "_create_llm_client",
+]

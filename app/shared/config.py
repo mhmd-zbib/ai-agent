@@ -14,6 +14,9 @@ class Settings(BaseSettings):
         default="You are a helpful software engineering assistant.",
         alias="AGENT_SYSTEM_PROMPT",
     )
+    llm_provider: str = Field(default="ollama", alias="LLM_PROVIDER")
+    ollama_host: str = Field(default="http://localhost:11434/v1", alias="OLLAMA_HOST")
+    ollama_model: str = Field(default="gemma3:270m", alias="OLLAMA_MODEL")
 
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     redis_url: str | None = Field(default=None, alias="REDIS_URL")
@@ -28,6 +31,8 @@ class Settings(BaseSettings):
         default=60,
         alias="JWT_ACCESS_TOKEN_EXPIRE_MINUTES",
     )
+
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     postgres_pool_size: int = Field(default=5, alias="POSTGRES_POOL_SIZE")
     postgres_max_overflow: int = Field(default=10, alias="POSTGRES_MAX_OVERFLOW")

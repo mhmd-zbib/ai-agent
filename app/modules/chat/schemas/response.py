@@ -1,18 +1,13 @@
-from datetime import datetime
-
 from pydantic import BaseModel
 
 
-class ChatHistoryItem(BaseModel):
-    role: str
-    content: str
-    created_at: datetime
+class SessionCreateResponse(BaseModel):
+    session_id: str
 
 
-class   ChatResponse(BaseModel):
+class ChatResponse(BaseModel):
     session_id: str
     reply: str
-    history: list[ChatHistoryItem]
 
 
 class StreamChunk(BaseModel):

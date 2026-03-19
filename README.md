@@ -78,15 +78,35 @@ Server runs at `http://127.0.0.1:8000`.
 ## Main Endpoints
 
 - `GET /health`
-- `POST /v1/agent/chat`
+- `POST /v1/users/register`
+- `POST /v1/users/login`
+- `POST /v1/agent/sessions` (create chat session)
+- `POST /v1/agent/chat` (send only new turn)
 - `DELETE /v1/agent/sessions/{session_id}`
+
+### Session-first chat flow
+
+1. Create a session: `POST /v1/agent/sessions`
+2. Send a new message turn: `POST /v1/agent/chat`
+3. Repeat step 2 with the same `session_id`
+
+The backend loads history from Redis first. On cache miss it reads PostgreSQL, rehydrates Redis, and sends context to the model.
 
 ### Sample chat request
 
 ```json
 {
-  "message": "Help me design a clean FastAPI architecture.",
-  "session_id": "optional-session-id"
+  "session_id": "required-session-id",
+  "message": "Help me design a clean FastAPI architecture."
+}
+```
+
+### Sample chat response
+
+```json
+{
+  "session_id": "required-session-id",
+  "reply": "Sure — here is a practical layered design..."
 }
 ```
 
