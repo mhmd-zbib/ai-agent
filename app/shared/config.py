@@ -83,6 +83,34 @@ class Settings(BaseSettings):
         alias="EMBEDDING_DIMENSION",
     )
 
+    # Document pipeline infrastructure
+    minio_endpoint: str = Field(default="localhost:9000", alias="MINIO_ENDPOINT")
+    minio_access_key: str = Field(default="minioadmin", alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(default="minioadmin", alias="MINIO_SECRET_KEY")
+    minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
+    minio_bucket_name: str = Field(default="documents", alias="MINIO_BUCKET_NAME")
+
+    rabbitmq_url: str = Field(
+        default="amqp://guest:guest@localhost:5672/%2F",
+        alias="RABBITMQ_URL",
+    )
+    rabbitmq_document_exchange: str = Field(
+        default="documents.exchange",
+        alias="RABBITMQ_DOCUMENT_EXCHANGE",
+    )
+    rabbitmq_document_routing_key: str = Field(
+        default="documents.uploaded",
+        alias="RABBITMQ_DOCUMENT_ROUTING_KEY",
+    )
+    rabbitmq_document_queue: str = Field(
+        default="documents.uploaded.queue",
+        alias="RABBITMQ_DOCUMENT_QUEUE",
+    )
+    document_chunk_size_bytes: int = Field(
+        default=1024 * 1024,
+        alias="DOCUMENT_CHUNK_SIZE_BYTES",
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -49,6 +49,13 @@ class FakeUserService:
         return {"id": "user-1", "email": "test@example.com"}
 
 
+class FakeToolActionChatService(FakeChatService):
+    def reply(self, payload):
+        response = super().reply(payload)
+        response["tool_action"] = {"tool_id": "weather", "params": {"city": "Beirut"}}
+        return response
+
+
 def test_chat_roundtrip() -> None:
     app = create_app()
     app.state.chat_service = FakeChatService()
@@ -85,6 +92,28 @@ def test_chat_roundtrip() -> None:
     second_json = second.json()
     assert second_json["session_id"] == session_id
     assert second_json["content"] == "echo: how are you?"
+
+
+def test_chat_hides_tool_action_when_service_returns_it() -> None:
+    app = create_app()
+    app.state.chat_service = FakeToolActionChatService()
+    app.state.user_service = FakeUserService()
+    client = TestClient(app)
+
+    session_response = client.post(
+        "/v1/agent/sessions",
+        headers={"Authorization": "Bearer good-token"},
+    )
+    session_id = session_response.json()["session_id"]
+
+    response = client.post(
+        "/v1/agent/chat",
+        json={"session_id": session_id, "message": "hello"},
+        headers={"Authorization": "Bearer good-token"},
+    )
+
+    assert response.status_code == 200
+    assert "tool_action" not in response.json()
 
 
 def test_reset_session() -> None:

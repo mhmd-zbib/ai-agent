@@ -16,7 +16,7 @@ FastAPI server with Redis-first memory, PostgreSQL persistence, and modular feat
 ## Requirements
 
 - Python 3.12+
-- Docker (for PostgreSQL + Redis via `compose.yaml`)
+- Docker (for PostgreSQL + Redis + RabbitMQ + MinIO via `compose.yaml`)
 - `OPENAI_API_KEY`
 
 ## Environment setup
@@ -33,16 +33,22 @@ Required persistence settings:
 DATABASE_URL=postgresql+psycopg://agent_user:agent_password@localhost:5432/agent_assistant
 REDIS_URL=redis://localhost:6379/0
 REDIS_CHAT_CACHE_TTL_SECONDS=3600
+RABBITMQ_URL=amqp://guest:guest@localhost:5672/%2F
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET_NAME=documents
+DOCUMENT_CHUNK_SIZE_BYTES=1048576
 ```
 
 Runtime behavior: reads chat history from Redis first; on cache miss, loads from PostgreSQL and rehydrates Redis.
 
 ## Infrastructure setup (Docker Compose)
 
-Start PostgreSQL and Redis:
+Start PostgreSQL, Redis, RabbitMQ, and MinIO:
 
 ```bash
-docker compose up -d postgres redis
+docker compose up -d postgres redis rabbitmq minio
 ```
 
 Check health:
@@ -57,7 +63,7 @@ Stop services:
 docker compose down
 ```
 
-Data is persisted in named Docker volumes `postgres_data` and `redis_data`.
+Data is persisted in named Docker volumes `postgres_data`, `redis_data`, and `minio_data`.
 
 ## Run the API
 
@@ -83,31 +89,19 @@ Server runs at `http://127.0.0.1:8000`.
 - `POST /v1/agent/sessions` (create chat session)
 - `POST /v1/agent/chat` (send only new turn)
 - `DELETE /v1/agent/sessions/{session_id}`
+- `POST /v1/documents/uploads` (multipart upload, chunk + publish event)
 
-### Session-first chat flow
+## Document upload + event flow
 
-1. Create a session: `POST /v1/agent/sessions`
-2. Send a new message turn: `POST /v1/agent/chat`
-3. Repeat step 2 with the same `session_id`
+1. Client uploads a file to `POST /v1/documents/uploads` (`multipart/form-data`).
+2. API chunks the file (`DOCUMENT_CHUNK_SIZE_BYTES`) and stores chunks + manifest in MinIO.
+3. API publishes `document.uploaded` to RabbitMQ.
+4. Consumer reads events and logs processing metadata.
 
-The backend loads history from Redis first. On cache miss it reads PostgreSQL, rehydrates Redis, and sends context to the model.
+Run the consumer worker:
 
-### Sample chat request
-
-```json
-{
-  "session_id": "required-session-id",
-  "message": "Help me design a clean FastAPI architecture."
-}
-```
-
-### Sample chat response
-
-```json
-{
-  "session_id": "required-session-id",
-  "reply": "Sure — here is a practical layered design..."
-}
+```bash
+uv run python -m app.workers.document_uploaded_consumer
 ```
 
 ## Tests

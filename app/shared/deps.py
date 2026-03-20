@@ -2,6 +2,7 @@ from fastapi import Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 
 from app.modules.chat.services.chat_service import ChatService
+from app.modules.documents.services import DocumentService
 from app.modules.users.schemas import UserOut
 from app.modules.users.services.user_service import UserService
 
@@ -14,6 +15,10 @@ def get_chat_service(request: Request) -> ChatService:
 
 def get_user_service(request: Request) -> UserService:
     return request.app.state.user_service
+
+
+def get_document_service(request: Request) -> DocumentService:
+    return request.app.state.document_service
 
 
 def get_current_user(

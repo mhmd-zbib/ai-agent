@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, cast
 
 from fastapi import FastAPI
 from redis import Redis
@@ -9,6 +9,10 @@ from app.modules.agent.llm.base import BaseLLM
 from app.modules.agent.llm.openai_client import OpenAIClient
 from app.modules.chat.router import router as chat_router
 from app.modules.chat.services.chat_service import ChatService
+from app.modules.documents.router import router as documents_router
+from app.modules.documents.services import DocumentService
+from app.modules.documents.services.document_service import EventPublisherPort
+from app.modules.documents.services.document_service import DocumentStoragePort
 from app.modules.memory.repositories.long_term_repository import LongTermRepository
 from app.modules.memory.repositories.short_term_repository import ShortTermRepository
 from app.modules.memory.services.memory_service import MemoryService
@@ -23,6 +27,8 @@ from app.shared.db.postgres import create_postgres_engine
 from app.shared.db.redis import create_redis_client
 from app.shared.exceptions import ConfigurationError, register_exception_handlers
 from app.shared.logging import configure_logging, get_logger
+from app.shared.messaging import RabbitMQPublisher
+from app.shared.storage import MinioStorageClient
 
 logger = get_logger(__name__)
 
@@ -100,6 +106,27 @@ def create_user_service(settings: Settings, postgres_engine: Engine) -> UserServ
     return UserService(repository=user_repository, auth_service=auth_service)
 
 
+def create_document_service(settings: Settings) -> DocumentService:
+    storage = MinioStorageClient(
+        endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        bucket_name=settings.minio_bucket_name,
+        secure=settings.minio_secure,
+    )
+    publisher = RabbitMQPublisher(
+        amqp_url=settings.rabbitmq_url,
+        exchange=settings.rabbitmq_document_exchange,
+        routing_key=settings.rabbitmq_document_routing_key,
+    )
+    return DocumentService(
+        bucket_name=settings.minio_bucket_name,
+        default_chunk_size_bytes=settings.document_chunk_size_bytes,
+        storage=cast(DocumentStoragePort, cast(object, storage)),
+        event_publisher=cast(EventPublisherPort, cast(object, publisher)),
+    )
+
+
 def _startup_services(app: FastAPI, settings: Settings) -> None:
     # Lifespan startup must be idempotent across test clients/reloads.
     if not hasattr(app.state, "postgres_engine") or not hasattr(app.state, "redis_client"):
@@ -120,6 +147,9 @@ def _startup_services(app: FastAPI, settings: Settings) -> None:
             postgres_engine=app.state.postgres_engine,
         )
 
+    if not hasattr(app.state, "document_service"):
+        app.state.document_service = create_document_service(settings)
+
 
 def _shutdown_services(app: FastAPI) -> None:
     chat_service = getattr(app.state, "chat_service", None)
@@ -129,6 +159,10 @@ def _shutdown_services(app: FastAPI) -> None:
     user_service = getattr(app.state, "user_service", None)
     if user_service is not None:
         user_service.close()
+
+    document_service = getattr(app.state, "document_service", None)
+    if document_service is not None:
+        document_service.close()
 
 
 def create_app() -> FastAPI:
@@ -153,6 +187,7 @@ def create_app() -> FastAPI:
 
     app.include_router(chat_router)
     app.include_router(users_router)
+    app.include_router(documents_router)
     register_exception_handlers(app)
 
     @app.get("/")
@@ -176,5 +211,6 @@ __all__ = [
     "create_app",
     "create_chat_service",
     "create_user_service",
+    "create_document_service",
     "_create_llm_client",
 ]

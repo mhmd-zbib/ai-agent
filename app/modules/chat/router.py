@@ -18,7 +18,13 @@ async def create_session(
     return chat_service.create_session()
 
 
-@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
+# Exclude internal orchestration details from user-facing API payloads.
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    response_model_exclude_none=True,
+    response_model_exclude={"tool_action"},
+)
 async def chat(
     payload: ChatRequest,
     chat_service: ChatService = Depends(get_chat_service),
