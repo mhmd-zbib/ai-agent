@@ -32,7 +32,7 @@ class PromptBuilder:
         Returns:
             str: System prompt for chat mode
         """
-        return """You are a helpful AI assistant. Provide clear, concise, and accurate responses to user questions.
+        return """You are a helpful AI assistant with access to tools. Use them when needed to provide clear, concise, and accurate responses to user questions.
 
 **Guidelines:**
 - Be conversational and natural in your responses
@@ -62,7 +62,7 @@ class PromptBuilder:
         # Build tool documentation
         tools_section = PromptBuilder._format_tools(tools)
         
-        return f"""You are an AI assistant that responds in **JSON only**. Never respond outside of this JSON structure.
+        return f"""You are an AI assistant with access to tools. You respond in **JSON only**. Never respond outside of this JSON structure.
 
 ### CRITICAL: Every response MUST include ALL fields
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Literal
+from typing import Any, Literal, Optional
 
 from openai import OpenAI
 from pydantic import ValidationError
@@ -10,7 +10,7 @@ from app.modules.agent.llm.base import BaseLLM
 from app.modules.agent.schemas import AgentInput
 from app.shared.exceptions import ConfigurationError, UpstreamServiceError
 from app.shared.logging import get_logger
-from app.shared.schemas import AIResponse, ResponseMetadata
+from app.shared.schemas import AIResponse, ResponseMetadata, ToolAction
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,18 @@ class OpenAIClient(BaseLLM):
         if api_key:
             kwargs = {"api_key": api_key}
             if base_url:
-                kwargs["base_url"] = base_url
+                # Ensure base_url ends with /v1 for OpenAI-compatible endpoints
+                formatted_url = base_url.rstrip("/")
+                if not formatted_url.endswith("/v1"):
+                    formatted_url = f"{formatted_url}/v1"
+                kwargs["base_url"] = formatted_url
+                logger.info(
+                    "OpenAIClient initialized with custom endpoint",
+                    extra={
+                        "base_url": formatted_url,
+                        "model": model,
+                    },
+                )
             self._client = OpenAI(**kwargs)
         else:
             self._client = None
@@ -36,7 +47,8 @@ class OpenAIClient(BaseLLM):
     def generate(
         self, 
         payload: AgentInput,
-        response_mode: Literal["chat", "tool_call"] = "chat"
+        response_mode: Literal["chat", "tool_call"] = "chat",
+        tools: Optional[list[dict[str, Any]]] = None
     ) -> AIResponse:
         """
         Generate response from OpenAI.
@@ -46,6 +58,7 @@ class OpenAIClient(BaseLLM):
             response_mode:
                 - "chat": Returns plain conversational text wrapped in AIResponse
                 - "tool_call": Returns structured JSON with tool actions
+            tools: Optional list of tools to provide to OpenAI for native function calling
         """
         if self._client is None:
             raise ConfigurationError("OPENAI_API_KEY is required to use the chat endpoint.")
@@ -64,12 +77,62 @@ class OpenAIClient(BaseLLM):
         # In chat mode, we get plain text and wrap it
         # In tool_call mode, we enforce JSON structure
         if response_mode == "chat":
-            return self._generate_chat_mode(messages)
+            return self._generate_chat_mode(messages, tools)
         else:
             return self._generate_tool_mode(messages)
     
-    def _generate_chat_mode(self, messages: list) -> AIResponse:
-        """Generate normal conversational response without JSON enforcement."""
+    def _parse_tool_calls(self, tool_calls: list[Any]) -> ToolAction | None:
+        valid_actions: list[ToolAction] = []
+        invalid_calls = 0
+
+        for idx, call in enumerate(tool_calls):
+            tool_name = getattr(getattr(call, "function", None), "name", "")
+            tool_args_str = getattr(getattr(call, "function", None), "arguments", "")
+
+            logger.debug(
+                "Parsing tool call",
+                extra={
+                    "tool_name": tool_name,
+                    "args_length": len(tool_args_str),
+                    "tool_call_index": idx,
+                },
+            )
+
+            try:
+                tool_args = json.loads(tool_args_str)
+                valid_actions.append(ToolAction(tool_id=tool_name, params=tool_args))
+            except (json.JSONDecodeError, ValidationError, ValueError) as e:
+                invalid_calls += 1
+                logger.warning(
+                    "Skipping invalid tool call",
+                    extra={
+                        "tool_name": tool_name,
+                        "tool_call_index": idx,
+                        "error": str(e),
+                    },
+                )
+
+        if not valid_actions:
+            raise ValueError("No valid tool calls could be parsed")
+
+        selected_action = valid_actions[0]
+        logger.info(
+            "Successfully parsed tool calls",
+            extra={
+                "selected_tool_id": selected_action.tool_id,
+                "valid_tool_calls": len(valid_actions),
+                "invalid_tool_calls": invalid_calls,
+                "total_tool_calls": len(tool_calls),
+            },
+        )
+        return selected_action
+
+    def _generate_chat_mode(
+        self, 
+        messages: list,
+        tools: Optional[list[dict[str, Any]]] = None
+    ) -> AIResponse:
+        """Generate normal conversational response with optional native function calling."""
         try:
             logger.debug(
                 "Sending chat mode request to OpenAI",
@@ -77,30 +140,72 @@ class OpenAIClient(BaseLLM):
                     "model": self._model,
                     "message_count": len(messages),
                     "response_mode": "chat",
+                    "tools_provided": tools is not None,
                 },
             )
 
-            response = self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                # No response_format constraint in chat mode
-            )
+            # Build OpenAI API call with optional tools parameter
+            api_params = {
+                "model": self._model,
+                "messages": messages,
+            }
+            if tools:
+                api_params["tools"] = tools
+                logger.debug(
+                    "Using OpenAI native function calling",
+                    extra={"tool_count": len(tools)}
+                )
 
-            content = response.choices[0].message.content or ""
+            response = self._client.chat.completions.create(**api_params)
+
+            msg = response.choices[0].message
+            content = msg.content or ""
+            tool_calls = msg.tool_calls
             
-            if not content.strip():
-                raise ValueError("AI returned empty response")
+            logger.debug(
+                "Received response from OpenAI",
+                extra={
+                    "has_content": bool(content),
+                    "has_tool_calls": bool(tool_calls),
+                    "tool_call_count": len(tool_calls) if tool_calls else 0,
+                }
+            )
+            
+            # Parse tool_calls if present
+            parsed_tool_action = None
+            if tool_calls:
+                parsed_tool_action = self._parse_tool_calls(tool_calls)
+
+            # Determine response type based on what we have
+            if content and parsed_tool_action:
+                response_type = "mixed"
+                logger.debug("Response contains both content and tool call")
+            elif parsed_tool_action:
+                response_type = "tool"
+                # Provide default content if none provided
+                if not content:
+                    content = f"Calling tool: {parsed_tool_action.tool_id}"
+                logger.debug("Response contains only tool call")
+            else:
+                response_type = "text"
+                if not content.strip():
+                    raise ValueError("AI returned empty response")
+                logger.debug("Response contains only text content")
             
             logger.info(
                 "Successfully generated chat response",
-                extra={"content_length": len(content)}
+                extra={
+                    "response_type": response_type,
+                    "content_length": len(content),
+                    "has_tool_action": parsed_tool_action is not None,
+                }
             )
             
-            # Wrap plain text in AIResponse structure
+            # Build AIResponse
             return AIResponse(
-                type="text",
+                type=response_type,
                 content=content,
-                tool_action=None,
+                tool_action=parsed_tool_action,
                 metadata=ResponseMetadata()
             )
             

@@ -10,20 +10,31 @@ class Settings(BaseSettings):
     app_name: str = "Agent Assistant API"
     app_version: str = "0.1.0"
 
-    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
+    # OpenAI SDK settings (unified approach for all providers)
+    openai_api_key: str = Field(
+        default="not-needed",
+        alias="OPENAI_API_KEY",
+        description="API key for OpenAI. Use 'not-needed' for local providers like Ollama",
+    )
+    openai_model: str = Field(
+        default="gpt-4-mini",
+        alias="OPENAI_MODEL",
+        description="Model name. Use OpenAI models (gpt-4-mini) or Ollama models (gemma3:270m)",
+    )
     openai_base_url: str | None = Field(
         default=None,
         alias="OPENAI_BASE_URL",
-        description="Custom base URL for OpenAI-compatible APIs (e.g., Ollama, Azure)",
+        description=(
+            "Optional base URL override for OpenAI SDK client. "
+            "If None/empty: uses standard OpenAI endpoint (api.openai.com). "
+            "If set: uses custom endpoint (e.g., http://localhost:11434/v1 for Ollama, "
+            "Azure endpoints, or other OpenAI-compatible APIs)"
+        ),
     )
     agent_system_prompt: str = Field(
         default=DEFAULT_SYSTEM_PROMPT,
         alias="AGENT_SYSTEM_PROMPT",
     )
-    llm_provider: str = Field(default="ollama", alias="LLM_PROVIDER")
-    ollama_host: str = Field(default="http://localhost:11434/v1", alias="OLLAMA_HOST")
-    ollama_model: str = Field(default="gemma3:270m", alias="OLLAMA_MODEL")
 
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     redis_url: str | None = Field(default=None, alias="REDIS_URL")
@@ -40,6 +51,12 @@ class Settings(BaseSettings):
     )
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    enable_demo_tools: bool = Field(
+        default=False,
+        validation_alias="ENABLE_DEMO_TOOLS",
+        description="Enable demo/showcase tools for development and testing",
+    )
 
     postgres_pool_size: int = Field(default=5, alias="POSTGRES_POOL_SIZE")
     postgres_max_overflow: int = Field(default=10, alias="POSTGRES_MAX_OVERFLOW")

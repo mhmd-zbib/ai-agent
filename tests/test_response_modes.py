@@ -2,7 +2,6 @@
 Tests for dual-mode response handling (chat vs tool_call).
 """
 from app.modules.agent.llm.openai_client import OpenAIClient
-from app.modules.agent.llm.ollama_client import OllamaClient
 from app.modules.agent.schemas import AgentInput
 from app.shared.schemas import AIResponse
 
@@ -22,10 +21,11 @@ def test_openai_chat_mode_returns_plain_text():
     assert hasattr(client.generate, '__call__')
     
 
-def test_ollama_chat_mode_structure():
-    """Test that Ollama client has the dual-mode structure."""
-    client = OllamaClient(
-        host="http://localhost:11434",
+def test_openai_client_with_custom_base_url():
+    """Test that OpenAI client accepts custom base_url for Ollama/other providers."""
+    client = OpenAIClient(
+        api_key="not-needed",
+        base_url="http://localhost:11434/v1",
         model="llama2",
         system_prompt="You are a helpful assistant."
     )

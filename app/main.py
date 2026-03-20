@@ -7,7 +7,6 @@ from sqlalchemy.engine import Engine
 
 from app.modules.agent.llm.base import BaseLLM
 from app.modules.agent.llm.openai_client import OpenAIClient
-from app.modules.agent.llm.ollama_client import OllamaClient
 from app.modules.agent.services.agent_service import AgentService
 from app.modules.agent.services.tool_executor import ToolExecutor
 from app.modules.chat.router import router as chat_router
@@ -46,23 +45,11 @@ def _create_infrastructure(settings: Settings) -> tuple[Engine, Redis]:
 
 
 def _create_llm_client(settings: Settings) -> BaseLLM:
-    provider = settings.llm_provider.lower().strip()
-    if provider == "ollama":
-        return OllamaClient(
-            host=settings.ollama_host,
-            model=settings.ollama_model,
-            system_prompt=settings.agent_system_prompt,
-        )
-    if provider == "openai":
-        return OpenAIClient(
-            api_key=settings.openai_api_key,
-            base_url=settings.openai_base_url,
-            model=settings.openai_model,
-            system_prompt=settings.agent_system_prompt,
-        )
-
-    raise ConfigurationError(
-        "Unsupported LLM_PROVIDER. Supported values: 'ollama', 'openai'."
+    return OpenAIClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.openai_model,
+        system_prompt=settings.agent_system_prompt,
     )
 
 
@@ -84,8 +71,22 @@ def create_chat_service(
     )
 
     llm_client = _create_llm_client(settings)
+    
+    # Initialize tool system
+    tool_registry = get_tool_registry()
+    logger.info(
+        "Tool registry initialized",
+        extra={
+            "tool_count": len(tool_registry._tools),
+            "tools": list(tool_registry._tools.keys()),
+        }
+    )
 
-    return ChatService(llm=llm_client, memory_service=memory_service)
+    return ChatService(
+        llm=llm_client, 
+        memory_service=memory_service,
+        tool_registry=tool_registry
+    )
 
 
 def create_user_service(settings: Settings, postgres_engine: Engine) -> UserService:

@@ -1,3 +1,5 @@
+from typing import Any
+
 from app.modules.tools.base import BaseTool
 
 
@@ -13,4 +15,22 @@ class ToolRegistry:
         if tool is None:
             raise KeyError(f"Tool '{name}' is not registered")
         return tool
+
+    def get_tools_for_openai(self) -> list[dict[str, Any]]:
+        """Get all registered tools in OpenAI function calling format.
+        
+        Returns list like:
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": "calculator",
+                    "description": "Perform mathematical calculations",
+                    "parameters": {...}
+                }
+            },
+            ...
+        ]
+        """
+        return [tool.to_openai_tool() for tool in self._tools.values()]
 
