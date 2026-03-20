@@ -13,6 +13,7 @@ dependencies = [
     "PyJWT>=2.10.1",
     "bcrypt>=5.0.0",
     "uvicorn>=0.42.0",
+    "pinecone>=8.1.0",
 ]
 
 [dependency-groups]

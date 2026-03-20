@@ -48,6 +48,24 @@ class Settings(BaseSettings):
         alias="POSTGRES_POOL_TIMEOUT_SECONDS",
     )
 
+    pinecone_api_key: str | None = Field(default=None, alias="PINECONE_API_KEY")
+    pinecone_environment: str = Field(
+        default="gcp-starter",
+        alias="PINECONE_ENVIRONMENT",
+    )
+    pinecone_index_name: str = Field(
+        default="agent-tools",
+        alias="PINECONE_INDEX_NAME",
+    )
+    embedding_model: str = Field(
+        default="text-embedding-3-small",
+        alias="EMBEDDING_MODEL",
+    )
+    embedding_dimension: int = Field(
+        default=1536,
+        alias="EMBEDDING_DIMENSION",
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

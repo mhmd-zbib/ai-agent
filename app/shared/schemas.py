@@ -8,7 +8,7 @@ that the AI agent returns, ensuring consistency across all interactions.
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ToolAction(BaseModel):
@@ -46,13 +46,13 @@ class ResponseMetadata(BaseModel):
     """
     
     confidence: float = Field(
-        ...,
+        default=0.9,
         ge=0.0,
         le=1.0,
         description="Confidence score between 0 and 1"
     )
     sources: Optional[List[str]] = Field(
-        default=None,
+        default_factory=list,
         description="List of sources or APIs consulted"
     )
     timestamp: datetime = Field(
@@ -113,28 +113,25 @@ class AIResponse(BaseModel):
         description="Tool action to execute (required if type is 'tool' or 'mixed')"
     )
     metadata: ResponseMetadata = Field(
-        ...,
+        default_factory=ResponseMetadata,
         description="Response metadata including confidence and sources"
     )
     
-    @field_validator('tool_action')
-    @classmethod
-    def validate_tool_action(cls, v: Optional[ToolAction], info) -> Optional[ToolAction]:
+    @model_validator(mode='after')
+    def validate_tool_action(self) -> 'AIResponse':
         """
         Validate that tool_action is present when type requires it.
         
         For 'tool' and 'mixed' types, tool_action must be provided.
         For 'text' type, tool_action should be None.
         """
-        response_type = info.data.get('type')
+        if self.type in ('tool', 'mixed') and self.tool_action is None:
+            raise ValueError(f"tool_action is required when type is '{self.type}'")
         
-        if response_type in ('tool', 'mixed') and v is None:
-            raise ValueError(f"tool_action is required when type is '{response_type}'")
-        
-        if response_type == 'text' and v is not None:
+        if self.type == 'text' and self.tool_action is not None:
             raise ValueError("tool_action must be None when type is 'text'")
         
-        return v
+        return self
     
     model_config = {
         "json_schema_extra": {

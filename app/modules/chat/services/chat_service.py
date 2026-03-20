@@ -1,4 +1,3 @@
-import json
 from uuid import uuid4
 
 from app.modules.agent.llm.base import BaseLLM
@@ -16,9 +15,13 @@ class ChatService:
     """
     Chat service that processes user messages and returns structured AI responses.
     
-    This service now works directly with AIResponse objects from the LLM,
-    processing structured JSON responses including type, content, tool actions,
-    and metadata.
+    This service determines the appropriate response mode:
+    - "chat" mode: Normal conversational responses for general queries
+    - "tool_call" mode: Structured JSON responses when tool execution is needed
+    
+    The response mode is currently defaulted to "chat" for all interactions.
+    Future integration with semantic search will enable dynamic mode selection
+    based on whether relevant tools are found for the user's query.
     """
     
     def __init__(self, llm: BaseLLM, memory_service: MemoryService) -> None:
@@ -41,20 +44,35 @@ class ChatService:
             history=[{"role": item.role, "content": item.content} for item in state.messages],
         )
         
-        # Get structured AIResponse from the LLM
-        ai_response: AIResponse = self._llm.generate(agent_input)
+        # TODO: Determine response mode based on semantic tool search
+        # For now, default to "chat" mode for normal conversational responses
+        # When tool integration is complete, this will check if relevant tools
+        # were found via semantic search and switch to "tool_call" mode
+        response_mode = "chat"  # Will be dynamic: "chat" | "tool_call"
+        
+        logger.debug(
+            "Generating response",
+            extra={
+                "session_id": session_id,
+                "response_mode": response_mode,
+            }
+        )
+        
+        # Get AIResponse from the LLM with appropriate mode
+        ai_response: AIResponse = self._llm.generate(agent_input, response_mode=response_mode)
         
         logger.info(
             "Generated AI response",
             extra={
                 "session_id": session_id,
                 "response_type": ai_response.type,
+                "response_mode": response_mode,
                 "has_tool_action": ai_response.tool_action is not None,
-                "confidence": ai_response.metadata.confidence,
+                "confidence": ai_response.metadata.confidence if ai_response.metadata else None,
             }
         )
         
-        # Process tool actions if present
+        # Process tool actions if present (tool_call mode)
         if ai_response.tool_action:
             logger.info(
                 "Tool action detected",
@@ -73,21 +91,16 @@ class ChatService:
             MemoryEntry(role="user", content=payload.message),
         )
         
-        # Store assistant response in memory as JSON for structured storage
-        assistant_content = json.dumps({
-            "type": ai_response.type,
-            "content": ai_response.content,
-            "tool_action": ai_response.tool_action.model_dump() if ai_response.tool_action else None,
-            "metadata": ai_response.metadata.model_dump(),
-        })
-        
+        # Store assistant response in memory
+        # Only store the content field, not the full structured JSON
         self._memory_service.append_message(
             session_id,
-            MemoryEntry(role="assistant", content=assistant_content),
+            MemoryEntry(role="assistant", content=ai_response.content),
         )
 
         return ChatResponse(
             session_id=session_id,
+            response_mode=response_mode,
             type=ai_response.type,
             content=ai_response.content,
             tool_action=ai_response.tool_action,
