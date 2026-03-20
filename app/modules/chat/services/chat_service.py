@@ -41,6 +41,25 @@ class ChatService:
         self._memory_service.get_session_state(session_id)
         return SessionCreateResponse(session_id=session_id)
 
+    def _format_user_content(
+        self,
+        ai_response: AIResponse,
+        tool_result: str | None = None,
+    ) -> str:
+        """Build clean user-facing content without transport/debug wrappers."""
+        if tool_result is None:
+            return ai_response.content
+
+        if ai_response.type == "tool":
+            return tool_result
+
+        if ai_response.type == "mixed":
+            # Preserve model text and add tool output without implementation labels.
+            base = ai_response.content.strip()
+            return f"{base}\n\n{tool_result}" if base else tool_result
+
+        return ai_response.content
+
     def reply(self, payload: ChatRequest) -> ChatResponse:
         session_id = payload.session_id
         state = self._memory_service.get_session_state(session_id)
@@ -102,7 +121,7 @@ class ChatService:
                 # Execute the tool
                 tool = self._tool_registry.resolve(ai_response.tool_action.tool_id)
                 tool_result = tool.run(ai_response.tool_action.params)
-                
+
                 logger.info(
                     "Tool execution completed",
                     extra={
@@ -111,10 +130,10 @@ class ChatService:
                         "result_length": len(tool_result),
                     }
                 )
-                
-                # Update the content with tool result
-                ai_response.content = f"{ai_response.content}\n\nTool Result: {tool_result}"
-                
+
+                # Keep user output clean and free of internal wrapper labels.
+                ai_response.content = self._format_user_content(ai_response, tool_result)
+
             except KeyError as e:
                 logger.error(
                     "Tool not found",
@@ -124,8 +143,8 @@ class ChatService:
                         "error": str(e),
                     }
                 )
-                ai_response.content = f"{ai_response.content}\n\nError: Tool not found"
-                
+                ai_response.content = "Tool not found."
+
             except Exception as e:
                 logger.error(
                     "Tool execution failed",
@@ -135,8 +154,8 @@ class ChatService:
                         "error": str(e),
                     }
                 )
-                ai_response.content = f"{ai_response.content}\n\nError: {str(e)}"
-        
+                ai_response.content = f"Tool execution failed: {str(e)}"
+
         # Store user message in memory
         self._memory_service.append_message(
             session_id,

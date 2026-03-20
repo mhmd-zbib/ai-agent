@@ -314,3 +314,26 @@ def test_openai_multiple_tool_calls_all_invalid_raises_error(openai_client, samp
 
     with pytest.raises(Exception):
         openai_client.generate(payload, response_mode="chat", tools=sample_tools)
+
+
+def test_openai_chat_mode_normalizes_json_text_content(openai_client, sample_tools):
+    """Chat mode should not return raw JSON strings in text content."""
+    mock_message = Mock()
+    mock_message.content = json.dumps({"weather": "Clear sky, 15.3C"})
+    mock_message.tool_calls = None
+
+    mock_choice = Mock()
+    mock_choice.message = mock_message
+
+    mock_response = Mock()
+    mock_response.choices = [mock_choice]
+
+    openai_client._client.chat.completions.create = Mock(return_value=mock_response)
+
+    payload = AgentInput(user_message="Weather in Paris?", session_id="test-session", history=[])
+    response = openai_client.generate(payload, response_mode="chat", tools=sample_tools)
+
+    assert response.type == "text"
+    assert response.tool_action is None
+    assert response.content == "The weather is Clear sky, 15.3C"
+

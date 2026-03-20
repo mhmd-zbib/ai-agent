@@ -44,8 +44,49 @@ class OpenAIClient(BaseLLM):
         self._model = model
         self._system_prompt = system_prompt
 
+    def _chat_mode_instruction(self) -> str:
+        """System-level instruction for conversational mode with tool calling."""
+        return (
+            "You are in chat mode. Respond in natural conversational text only. "
+            "Do not return JSON objects or JSON code blocks. "
+            "If a tool is needed, call the tool via tool_calls and keep content concise."
+        )
+
+    def _normalize_chat_content(self, content: str) -> str:
+        """Convert accidental JSON string output into user-friendly plain text."""
+        text = content.strip()
+        if not text or not (text.startswith("{") and text.endswith("}")):
+            return content
+
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return content
+
+        if not isinstance(parsed, dict):
+            return content
+
+        # Structured schema output accidentally returned in chat mode.
+        if isinstance(parsed.get("content"), str):
+            return parsed["content"].strip()
+
+        # Single-key payloads like {"weather": "..."} should be shown as plain text.
+        if len(parsed) == 1:
+            key, value = next(iter(parsed.items()))
+            if isinstance(value, str) and value.strip():
+                if key.lower() == "weather":
+                    return f"The weather is {value.strip()}"
+                return value.strip()
+
+        # Last-resort flattening into readable text.
+        parts: list[str] = []
+        for key, value in parsed.items():
+            if isinstance(value, str):
+                parts.append(f"{key}: {value}")
+        return "; ".join(parts) if parts else content
+
     def generate(
-        self, 
+        self,
         payload: AgentInput,
         response_mode: Literal["chat", "tool_call"] = "chat",
         tools: Optional[list[dict[str, Any]]] = None
@@ -65,6 +106,8 @@ class OpenAIClient(BaseLLM):
 
         # Build simple message array for Chat Completions API
         messages = [{"role": "system", "content": self._system_prompt}]
+        if response_mode == "chat":
+            messages.append({"role": "system", "content": self._chat_mode_instruction()})
         messages.extend(
             {
                 "role": item["role"],
@@ -128,7 +171,7 @@ class OpenAIClient(BaseLLM):
         return selected_action
 
     def _generate_chat_mode(
-        self, 
+        self,
         messages: list,
         tools: Optional[list[dict[str, Any]]] = None
     ) -> AIResponse:
@@ -161,7 +204,9 @@ class OpenAIClient(BaseLLM):
             msg = response.choices[0].message
             content = msg.content or ""
             tool_calls = msg.tool_calls
-            
+            if content and not tool_calls:
+                content = self._normalize_chat_content(content)
+
             logger.debug(
                 "Received response from OpenAI",
                 extra={

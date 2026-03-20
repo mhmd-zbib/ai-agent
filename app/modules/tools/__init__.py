@@ -10,7 +10,13 @@ They showcase different tool patterns, parameter types, and error handling
 strategies without requiring external services or credentials.
 """
 
-from app.modules.tools.implementations import CalculatorTool, DocumentLookupTool, WebSearchTool
+from app.modules.tools.implementations import (
+    CalculatorTool,
+    DateTimeNowTool,
+    DocumentLookupTool,
+    WeatherTool,
+    WebSearchTool,
+)
 from app.modules.tools.registry import ToolRegistry
 from app.shared.config import get_settings
 
@@ -30,7 +36,9 @@ def get_tool_registry() -> ToolRegistry:
 
     # Always register production tools
     registry.register(CalculatorTool())
+    registry.register(DateTimeNowTool())
     registry.register(WebSearchTool())
+    registry.register(WeatherTool())
     registry.register(DocumentLookupTool())
 
     # Conditionally register demo tools for development/testing
@@ -55,4 +63,3 @@ def get_tool_registry() -> ToolRegistry:
 
 
 __all__ = ["get_tool_registry", "ToolRegistry"]
-
