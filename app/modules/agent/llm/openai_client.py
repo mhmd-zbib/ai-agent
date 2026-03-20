@@ -85,46 +85,80 @@ class OpenAIClient(BaseLLM):
                 parts.append(f"{key}: {value}")
         return "; ".join(parts) if parts else content
 
-    def generate(
+    def _build_messages(
         self,
         payload: AgentInput,
-        response_mode: Literal["chat", "tool_call"] = "chat",
-        tools: Optional[list[dict[str, Any]]] = None
-    ) -> AIResponse:
-        """
-        Generate response from OpenAI.
-        
-        Args:
-            payload: Input including user message and history
-            response_mode:
-                - "chat": Returns plain conversational text wrapped in AIResponse
-                - "tool_call": Returns structured JSON with tool actions
-            tools: Optional list of tools to provide to OpenAI for native function calling
-        """
-        if self._client is None:
-            raise ConfigurationError("OPENAI_API_KEY is required to use the chat endpoint.")
-
-        # Build simple message array for Chat Completions API
-        messages = [{"role": "system", "content": self._system_prompt}]
+        response_mode: Literal["chat", "tool_call"],
+    ) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = [{"role": "system", "content": self._system_prompt}]
         if response_mode == "chat":
             messages.append({"role": "system", "content": self._chat_mode_instruction()})
         messages.extend(
             {
                 "role": item["role"],
-                "content": item["content"]
+                "content": item["content"],
             }
             for item in payload.history
         )
         messages.append({"role": "user", "content": payload.user_message})
+        return messages
 
-        # In chat mode, we get plain text and wrap it
-        # In tool_call mode, we enforce JSON structure
-        if response_mode == "chat":
-            return self._generate_chat_mode(messages, tools)
-        else:
-            return self._generate_tool_mode(messages)
-    
-    def _parse_tool_calls(self, tool_calls: list[Any]) -> ToolAction | None:
+    def _build_chat_api_params(
+        self,
+        messages: list[dict[str, str]],
+        tools: Optional[list[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        api_params: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+        }
+        if tools:
+            api_params["tools"] = tools
+            logger.debug(
+                "Using OpenAI native function calling",
+                extra={"tool_count": len(tools)},
+            )
+        return api_params
+
+    def _classify_chat_response(
+        self,
+        content: str,
+        parsed_tool_action: ToolAction | None,
+    ) -> tuple[Literal["text", "tool", "mixed"], str]:
+        if content and parsed_tool_action:
+            logger.debug("Response contains both content and tool call")
+            return "mixed", content
+
+        if parsed_tool_action:
+            logger.debug("Response contains only tool call")
+            if not content:
+                content = f"Calling tool: {parsed_tool_action.tool_id}"
+            return "tool", content
+
+        if not content.strip():
+            raise ValueError("AI returned empty response")
+
+        logger.debug("Response contains only text content")
+        return "text", content
+
+    def _parse_tool_mode_response(self, ai_content: str) -> AIResponse:
+        ai_response_data = json.loads(ai_content)
+        if not ai_response_data or ai_response_data == {}:
+            raise ValueError("AI returned empty JSON object")
+        return AIResponse(**ai_response_data)
+
+    def _append_tool_mode_repair_instruction(self, messages: list[dict[str, str]]) -> None:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "CRITICAL: You must respond with valid JSON containing 'type', "
+                    "'content', and 'metadata' fields. Never return an empty object."
+                ),
+            }
+        )
+
+    def _parse_tool_calls(self, tool_calls: list[Any]) -> ToolAction:
         valid_actions: list[ToolAction] = []
         invalid_calls = 0
 
@@ -144,14 +178,14 @@ class OpenAIClient(BaseLLM):
             try:
                 tool_args = json.loads(tool_args_str)
                 valid_actions.append(ToolAction(tool_id=tool_name, params=tool_args))
-            except (json.JSONDecodeError, ValidationError, ValueError) as e:
+            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
                 invalid_calls += 1
                 logger.warning(
                     "Skipping invalid tool call",
                     extra={
                         "tool_name": tool_name,
                         "tool_call_index": idx,
-                        "error": str(e),
+                        "error": str(exc),
                     },
                 )
 
@@ -170,6 +204,33 @@ class OpenAIClient(BaseLLM):
         )
         return selected_action
 
+    def generate(
+        self,
+        payload: AgentInput,
+        response_mode: Literal["chat", "tool_call"] = "chat",
+        tools: Optional[list[dict[str, Any]]] = None
+    ) -> AIResponse:
+        """
+        Generate response from OpenAI.
+        
+        Args:
+            payload: Input including user message and history
+            response_mode:
+                - "chat": Returns plain conversational text wrapped in AIResponse
+                - "tool_call": Returns structured JSON with tool actions
+            tools: Optional list of tools to provide to OpenAI for native function calling
+        """
+        if self._client is None:
+            raise ConfigurationError("OPENAI_API_KEY is required to use the chat endpoint.")
+
+        messages = self._build_messages(payload=payload, response_mode=response_mode)
+
+        # In chat mode, we get plain text and wrap it
+        # In tool_call mode, we enforce JSON structure
+        if response_mode == "chat":
+            return self._generate_chat_mode(messages, tools)
+        return self._generate_tool_mode(messages)
+
     def _generate_chat_mode(
         self,
         messages: list,
@@ -187,18 +248,7 @@ class OpenAIClient(BaseLLM):
                 },
             )
 
-            # Build OpenAI API call with optional tools parameter
-            api_params = {
-                "model": self._model,
-                "messages": messages,
-            }
-            if tools:
-                api_params["tools"] = tools
-                logger.debug(
-                    "Using OpenAI native function calling",
-                    extra={"tool_count": len(tools)}
-                )
-
+            api_params = self._build_chat_api_params(messages=messages, tools=tools)
             response = self._client.chat.completions.create(**api_params)
 
             msg = response.choices[0].message
@@ -221,22 +271,11 @@ class OpenAIClient(BaseLLM):
             if tool_calls:
                 parsed_tool_action = self._parse_tool_calls(tool_calls)
 
-            # Determine response type based on what we have
-            if content and parsed_tool_action:
-                response_type = "mixed"
-                logger.debug("Response contains both content and tool call")
-            elif parsed_tool_action:
-                response_type = "tool"
-                # Provide default content if none provided
-                if not content:
-                    content = f"Calling tool: {parsed_tool_action.tool_id}"
-                logger.debug("Response contains only tool call")
-            else:
-                response_type = "text"
-                if not content.strip():
-                    raise ValueError("AI returned empty response")
-                logger.debug("Response contains only text content")
-            
+            response_type, content = self._classify_chat_response(
+                content=content,
+                parsed_tool_action=parsed_tool_action,
+            )
+
             logger.info(
                 "Successfully generated chat response",
                 extra={
@@ -266,9 +305,10 @@ class OpenAIClient(BaseLLM):
     def _generate_tool_mode(self, messages: list) -> AIResponse:
         """Generate structured JSON response with tool actions."""
         max_retries = 3
-        last_error = None
-        
+        last_error: Exception | None = None
+
         for attempt in range(max_retries):
+            ai_content = ""
             try:
                 logger.debug(
                     "Sending tool mode request to OpenAI",
@@ -283,11 +323,11 @@ class OpenAIClient(BaseLLM):
                 response = self._client.chat.completions.create(
                     model=self._model,
                     messages=messages,
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
                 )
 
                 ai_content = response.choices[0].message.content or ""
-                
+
                 logger.debug(
                     "Received response from OpenAI",
                     extra={
@@ -295,22 +335,14 @@ class OpenAIClient(BaseLLM):
                         "attempt": attempt + 1,
                     }
                 )
-                
-                # Parse and validate
-                ai_response_data = json.loads(ai_content)
-                
-                # Check for empty response
-                if not ai_response_data or ai_response_data == {}:
-                    raise ValueError("AI returned empty JSON object")
-                
-                ai_response = AIResponse(**ai_response_data)
-                
+
+                ai_response = self._parse_tool_mode_response(ai_content)
                 logger.info(
                     "Successfully generated valid AI response",
                     extra={"attempt": attempt + 1}
                 )
                 return ai_response
-                
+
             except (ValidationError, ValueError, json.JSONDecodeError) as e:
                 last_error = e
                 logger.warning(
@@ -318,25 +350,22 @@ class OpenAIClient(BaseLLM):
                     extra={
                         "error": str(e),
                         "attempt": attempt + 1,
-                        "content": ai_content[:200] if 'ai_content' in locals() else None,
+                        "content": ai_content[:200] if ai_content else None,
                     }
                 )
-                
+
                 if attempt < max_retries - 1:
-                    messages.append({
-                        "role": "system",
-                        "content": "CRITICAL: You must respond with valid JSON containing 'type', 'content', and 'metadata' fields. Never return an empty object."
-                    })
+                    self._append_tool_mode_repair_instruction(messages)
                     continue
-                else:
-                    logger.error(
-                        "All retry attempts failed for OpenAI",
-                        extra={"validation_error": str(last_error)},
-                    )
-                    raise UpstreamServiceError(
-                        f"OpenAI returned invalid response after {max_retries} attempts: {last_error}"
-                    ) from last_error
-                    
+
+                logger.error(
+                    "All retry attempts failed for OpenAI",
+                    extra={"validation_error": str(last_error)},
+                )
+                raise UpstreamServiceError(
+                    f"OpenAI returned invalid response after {max_retries} attempts: {last_error}"
+                ) from last_error
+
             except UpstreamServiceError:
                 raise
             except Exception as e:

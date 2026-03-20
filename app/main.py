@@ -7,16 +7,15 @@ from sqlalchemy.engine import Engine
 
 from app.modules.agent.llm.base import BaseLLM
 from app.modules.agent.llm.openai_client import OpenAIClient
-from app.modules.agent.services.agent_service import AgentService
-from app.modules.agent.services.tool_executor import ToolExecutor
 from app.modules.chat.router import router as chat_router
 from app.modules.chat.services.chat_service import ChatService
 from app.modules.memory.repositories.long_term_repository import LongTermRepository
 from app.modules.memory.repositories.short_term_repository import ShortTermRepository
 from app.modules.memory.services.memory_service import MemoryService
 from app.modules.tools import get_tool_registry
-from app.modules.users.router import router as users_router
+from app.modules.users.config import AuthConfig
 from app.modules.users.repositories.user_repository import UserRepository
+from app.modules.users.router import router as users_router
 from app.modules.users.services.auth_service import AuthService
 from app.modules.users.services.user_service import UserService
 from app.shared.config import Settings, get_settings
@@ -77,8 +76,8 @@ def create_chat_service(
     logger.info(
         "Tool registry initialized",
         extra={
-            "tool_count": len(tool_registry._tools),
-            "tools": list(tool_registry._tools.keys()),
+            "tool_count": len(tool_registry.list_tools()),
+            "tools": tool_registry.list_tools(),
         }
     )
 
@@ -90,11 +89,12 @@ def create_chat_service(
 
 
 def create_user_service(settings: Settings, postgres_engine: Engine) -> UserService:
-    auth_service = AuthService(
-        secret_key=settings.jwt_secret_key or "",
-        algorithm=settings.jwt_algorithm,
-        access_token_expire_minutes=settings.jwt_access_token_expire_minutes,
+    auth_config = AuthConfig(
+        settings.jwt_secret_key or "",
+        settings.jwt_algorithm,
+        settings.jwt_access_token_expire_minutes,
     )
+    auth_service = AuthService(auth_config)
     user_repository = UserRepository(postgres_engine)
     user_repository.ensure_schema()
     return UserService(repository=user_repository, auth_service=auth_service)

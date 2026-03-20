@@ -1,4 +1,5 @@
 from uuid import uuid4
+from typing import Literal
 
 from app.modules.agent.llm.base import BaseLLM
 from app.modules.agent.schemas import AgentInput
@@ -50,6 +51,10 @@ class ChatService:
         if tool_result is None:
             return ai_response.content
 
+        # Convert raw tool outage wording to conversational chat text.
+        if tool_result.startswith("Weather service is currently unavailable"):
+            return "I couldn't reach the weather service right now. Please try again in a moment."
+
         if ai_response.type == "tool":
             return tool_result
 
@@ -60,25 +65,156 @@ class ChatService:
 
         return ai_response.content
 
+    def _resolve_response_mode(self) -> Literal["chat", "tool_call"]:
+        """Return response mode; kept isolated for future strategy injection."""
+        return "chat"
+
+    def _execute_tool_action(self, session_id: str, ai_response: AIResponse) -> AIResponse:
+        """Execute tool action and update response content with user-safe output."""
+        if ai_response.tool_action is None:
+            return ai_response
+
+        logger.info(
+            "Tool action detected - executing",
+            extra={
+                "session_id": session_id,
+                "tool_id": ai_response.tool_action.tool_id,
+                "params": ai_response.tool_action.params,
+            }
+        )
+
+        try:
+            tool = self._tool_registry.resolve(ai_response.tool_action.tool_id)
+            tool_result = tool.run(ai_response.tool_action.params)
+            logger.info(
+                "Tool execution completed",
+                extra={
+                    "session_id": session_id,
+                    "tool_id": ai_response.tool_action.tool_id,
+                    "result_length": len(tool_result),
+                }
+            )
+            ai_response.content = self._format_user_content(ai_response, tool_result)
+        except KeyError as exc:
+            logger.error(
+                "Tool not found",
+                extra={
+                    "session_id": session_id,
+                    "tool_id": ai_response.tool_action.tool_id,
+                    "error": str(exc),
+                }
+            )
+            ai_response.content = "Sorry, I couldn't run that tool."
+        except Exception as exc:
+            logger.error(
+                "Tool execution failed",
+                extra={
+                    "session_id": session_id,
+                    "tool_id": ai_response.tool_action.tool_id,
+                    "error": str(exc),
+                }
+            )
+            ai_response.content = "Sorry, I hit an error while processing that request."
+
+        return ai_response
+
+    def _build_agent_input(self, payload: ChatRequest, state_messages: list[MemoryEntry]) -> AgentInput:
+        return AgentInput(
+            user_message=payload.message,
+            session_id=payload.session_id,
+            history=[{"role": item.role, "content": item.content} for item in state_messages],
+        )
+
+    def _build_followup_agent_input(
+        self,
+        payload: ChatRequest,
+        state_messages: list[MemoryEntry],
+        tool_observation: str,
+    ) -> AgentInput:
+        """Build a follow-up prompt so the model can finalize the full user answer."""
+        followup_history = [
+            {"role": item.role, "content": item.content}
+            for item in state_messages
+        ]
+        followup_history.append({"role": "user", "content": payload.message})
+        followup_history.append(
+            {
+                "role": "assistant",
+                "content": (
+                    "Tool observation:\n"
+                    f"{tool_observation}\n\n"
+                    "Now answer the user's full question in natural conversational text. "
+                    "Do not output JSON."
+                ),
+            }
+        )
+        return AgentInput(
+            user_message="Please provide the final user-facing answer.",
+            session_id=payload.session_id,
+            history=followup_history,
+        )
+
+    def _get_registered_tools(self) -> list[dict[str, object]]:
+        return self._tool_registry.get_tools_for_openai()
+
+    def _invoke_llm(
+        self,
+        agent_input: AgentInput,
+        response_mode: Literal["chat", "tool_call"],
+        tools: list[dict[str, object]] | None,
+    ) -> AIResponse:
+        return self._llm.generate(
+            agent_input,
+            response_mode=response_mode,
+            tools=tools,
+        )
+
+    def _invoke_followup_answer(
+        self,
+        payload: ChatRequest,
+        state_messages: list[MemoryEntry],
+        tool_observation: str,
+    ) -> str:
+        """Ask the LLM to synthesize a final response using tool results."""
+        followup_input = self._build_followup_agent_input(
+            payload=payload,
+            state_messages=state_messages,
+            tool_observation=tool_observation,
+        )
+        followup_response = self._invoke_llm(
+            agent_input=followup_input,
+            response_mode="chat",
+            tools=[],
+        )
+        return followup_response.content.strip() or tool_observation
+
+    def _persist_turn(self, session_id: str, user_message: str, assistant_message: str) -> None:
+        self._memory_service.append_message(
+            session_id,
+            MemoryEntry(role="user", content=user_message),
+        )
+        self._memory_service.append_message(
+            session_id,
+            MemoryEntry(role="assistant", content=assistant_message),
+        )
+
+    def _finalize_chat_response(self, ai_response: AIResponse) -> AIResponse:
+        """Ensure chat mode returns conversational text instead of tool envelope."""
+        ai_response.type = "text"
+        ai_response.tool_action = None
+        return ai_response
+
     def reply(self, payload: ChatRequest) -> ChatResponse:
         session_id = payload.session_id
         state = self._memory_service.get_session_state(session_id)
 
-        agent_input = AgentInput(
-            user_message=payload.message,
-            session_id=session_id,
-            history=[{"role": item.role, "content": item.content} for item in state.messages],
-        )
-        
+        agent_input = self._build_agent_input(payload=payload, state_messages=state.messages)
+
         # TODO: Determine response mode based on semantic tool search
-        # For now, default to "chat" mode for normal conversational responses
-        # When tool integration is complete, this will check if relevant tools
-        # were found via semantic search and switch to "tool_call" mode
-        response_mode = "chat"  # Will be dynamic: "chat" | "tool_call"
-        
-        # Get tools from registry for OpenAI native function calling
-        tools = self._tool_registry.get_tools_for_openai()
-        
+        response_mode: Literal["chat", "tool_call"] = self._resolve_response_mode()
+
+        tools = self._get_registered_tools()
+
         logger.debug(
             "Generating response",
             extra={
@@ -87,14 +223,13 @@ class ChatService:
                 "tool_count": len(tools),
             }
         )
-        
-        # Get AIResponse from the LLM with appropriate mode and tools
-        ai_response: AIResponse = self._llm.generate(
-            agent_input, 
+
+        ai_response: AIResponse = self._invoke_llm(
+            agent_input=agent_input,
             response_mode=response_mode,
-            tools=tools
+            tools=tools,
         )
-        
+
         logger.info(
             "Generated AI response",
             extra={
@@ -106,67 +241,28 @@ class ChatService:
             }
         )
         
-        # Process tool actions if present
-        if ai_response.tool_action:
-            logger.info(
-                "Tool action detected - executing",
-                extra={
-                    "session_id": session_id,
-                    "tool_id": ai_response.tool_action.tool_id,
-                    "params": ai_response.tool_action.params,
-                }
-            )
-            
+        had_tool_action = ai_response.tool_action is not None
+        ai_response = self._execute_tool_action(session_id=session_id, ai_response=ai_response)
+
+        if had_tool_action:
             try:
-                # Execute the tool
-                tool = self._tool_registry.resolve(ai_response.tool_action.tool_id)
-                tool_result = tool.run(ai_response.tool_action.params)
-
-                logger.info(
-                    "Tool execution completed",
-                    extra={
-                        "session_id": session_id,
-                        "tool_id": ai_response.tool_action.tool_id,
-                        "result_length": len(tool_result),
-                    }
+                ai_response.content = self._invoke_followup_answer(
+                    payload=payload,
+                    state_messages=state.messages,
+                    tool_observation=ai_response.content,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Follow-up synthesis failed; falling back to tool response",
+                    extra={"session_id": session_id, "error": str(exc)},
                 )
 
-                # Keep user output clean and free of internal wrapper labels.
-                ai_response.content = self._format_user_content(ai_response, tool_result)
+        ai_response = self._finalize_chat_response(ai_response)
 
-            except KeyError as e:
-                logger.error(
-                    "Tool not found",
-                    extra={
-                        "session_id": session_id,
-                        "tool_id": ai_response.tool_action.tool_id,
-                        "error": str(e),
-                    }
-                )
-                ai_response.content = "Tool not found."
-
-            except Exception as e:
-                logger.error(
-                    "Tool execution failed",
-                    extra={
-                        "session_id": session_id,
-                        "tool_id": ai_response.tool_action.tool_id,
-                        "error": str(e),
-                    }
-                )
-                ai_response.content = f"Tool execution failed: {str(e)}"
-
-        # Store user message in memory
-        self._memory_service.append_message(
-            session_id,
-            MemoryEntry(role="user", content=payload.message),
-        )
-        
-        # Store assistant response in memory
-        # Only store the content field, not the full structured JSON
-        self._memory_service.append_message(
-            session_id,
-            MemoryEntry(role="assistant", content=ai_response.content),
+        self._persist_turn(
+            session_id=session_id,
+            user_message=payload.message,
+            assistant_message=ai_response.content,
         )
 
         return ChatResponse(

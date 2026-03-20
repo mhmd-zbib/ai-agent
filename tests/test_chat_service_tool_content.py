@@ -4,6 +4,10 @@ from app.modules.memory.schemas import SessionState
 from app.modules.tools.base import BaseTool
 from app.modules.tools.registry import ToolRegistry
 from app.shared.schemas import AIResponse, ToolAction
+from typing import Any, Literal, Optional
+
+from app.modules.agent.llm.base import BaseLLM
+from app.modules.agent.schemas import AgentInput
 
 
 class _FakeMemoryService:
@@ -32,12 +36,20 @@ class _FakeTool(BaseTool):
         return "Current weather in Paris, France: Clear sky. Temperature: 15.3C."
 
 
-class _FakeLLM:
-    def __init__(self, response: AIResponse) -> None:
-        self._response = response
+class _FakeLLM(BaseLLM):
+    def __init__(self, responses: list[AIResponse]) -> None:
+        self._responses = responses
+        self.call_count = 0
 
-    def generate(self, payload, response_mode="chat", tools=None):
-        return self._response
+    def generate(
+        self,
+        payload: AgentInput,
+        response_mode: Literal["chat", "tool_call"] = "chat",
+        tools: Optional[list[dict[str, Any]]] = None,
+    ) -> AIResponse:  # noqa: ARG002
+        idx = min(self.call_count, len(self._responses) - 1)
+        self.call_count += 1
+        return self._responses[idx]
 
 
 def test_chat_service_tool_type_returns_clean_tool_content() -> None:
@@ -45,18 +57,28 @@ def test_chat_service_tool_type_returns_clean_tool_content() -> None:
     registry.register(_FakeTool())
     memory_service = _FakeMemoryService()
 
-    llm_response = AIResponse(
-        type="tool",
-        content="Calling tool: weather",
-        tool_action=ToolAction(tool_id="weather", params={"city": "Paris"}),
+    llm = _FakeLLM(
+        responses=[
+            AIResponse(
+                type="tool",
+                content="Calling tool: weather",
+                tool_action=ToolAction(tool_id="weather", params={"city": "Paris"}),
+            ),
+            AIResponse(
+                type="text",
+                content="The weather in Paris is clear, around 15C. Great for a walk.",
+                tool_action=None,
+            ),
+        ]
     )
-    service = ChatService(llm=_FakeLLM(llm_response), memory_service=memory_service, tool_registry=registry)
+    service = ChatService(llm=llm, memory_service=memory_service, tool_registry=registry)
 
     response = service.reply(ChatRequest(session_id="s1", message="weather in paris"))
 
-    assert "Calling tool" not in response.content
-    assert "Tool Result:" not in response.content
-    assert response.content == "Current weather in Paris, France: Clear sky. Temperature: 15.3C."
+    assert llm.call_count == 2
+    assert response.type == "text"
+    assert response.tool_action is None
+    assert response.content == "The weather in Paris is clear, around 15C. Great for a walk."
 
 
 def test_chat_service_mixed_type_keeps_text_without_wrapper_label() -> None:
@@ -64,16 +86,26 @@ def test_chat_service_mixed_type_keeps_text_without_wrapper_label() -> None:
     registry.register(_FakeTool())
     memory_service = _FakeMemoryService()
 
-    llm_response = AIResponse(
-        type="mixed",
-        content="Here is the weather update:",
-        tool_action=ToolAction(tool_id="weather", params={"city": "Paris"}),
+    llm = _FakeLLM(
+        responses=[
+            AIResponse(
+                type="mixed",
+                content="Here is the weather update:",
+                tool_action=ToolAction(tool_id="weather", params={"city": "Paris"}),
+            ),
+            AIResponse(
+                type="text",
+                content="It's cool and clear in Paris today, so it is generally fine for a short trip.",
+                tool_action=None,
+            ),
+        ]
     )
-    service = ChatService(llm=_FakeLLM(llm_response), memory_service=memory_service, tool_registry=registry)
+    service = ChatService(llm=llm, memory_service=memory_service, tool_registry=registry)
 
     response = service.reply(ChatRequest(session_id="s1", message="weather in paris"))
 
+    assert llm.call_count == 2
+    assert response.type == "text"
+    assert response.tool_action is None
     assert "Tool Result:" not in response.content
-    assert response.content.startswith("Here is the weather update:")
-    assert "Current weather in Paris, France: Clear sky." in response.content
-
+    assert "trip" in response.content.lower()

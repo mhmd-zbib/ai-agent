@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 from app.modules.agent.llm.base import BaseLLM
 from app.modules.agent.schemas import AgentInput, AgentOutput, ToolCall
@@ -21,8 +21,16 @@ class AgentService:
         self._tool_executor = tool_executor
         self._tool_registry = tool_registry
 
+    def _build_tool_call(self, ai_response: AIResponse) -> ToolCall | None:
+        if ai_response.tool_action is None:
+            return None
+        return ToolCall(
+            name=ai_response.tool_action.tool_id,
+            arguments=ai_response.tool_action.params,
+        )
+
     def respond(
-        self, 
+        self,
         payload: AgentInput,
         response_mode: Literal["chat", "tool_call"] = "chat"
     ) -> AgentOutput:
@@ -76,73 +84,31 @@ class AgentService:
         )
         
         # Convert AIResponse to AgentOutput for backward compatibility
-        tool_calls = []
+        tool_calls: list[ToolCall] = []
         tool_results = []
-        
-        # If the AI wants to execute a tool, create a ToolCall and execute it
-        if ai_response.tool_action:
+
+        tool_call = self._build_tool_call(ai_response)
+        if tool_call is not None:
             logger.info(
                 "Executing tool action",
                 extra={
                     "session_id": payload.session_id,
-                    "tool_id": ai_response.tool_action.tool_id,
-                    "params": ai_response.tool_action.params,
+                    "tool_id": tool_call.name,
+                    "params": tool_call.arguments,
                 }
             )
-            
-            try:
-                tool_call = ToolCall(
-                    name=ai_response.tool_action.tool_id,
-                    arguments=ai_response.tool_action.params
-                )
-                tool_calls.append(tool_call)
-                
-                # Execute the tool
-                tool_results = self._tool_executor.run([tool_call])
-                
-                logger.info(
-                    "Tool execution completed",
-                    extra={
-                        "session_id": payload.session_id,
-                        "tool_id": ai_response.tool_action.tool_id,
-                        "result_count": len(tool_results),
-                    }
-                )
-            except KeyError as e:
-                logger.error(
-                    "Tool not found",
-                    extra={
-                        "session_id": payload.session_id,
-                        "tool_id": ai_response.tool_action.tool_id,
-                        "error": str(e),
-                    }
-                )
-                # Return error as tool result
-                from app.modules.agent.schemas import ToolResult
-                tool_results = [
-                    ToolResult(
-                        name=ai_response.tool_action.tool_id,
-                        output=f"Error: Tool '{ai_response.tool_action.tool_id}' not found"
-                    )
-                ]
-            except Exception as e:
-                logger.error(
-                    "Tool execution failed",
-                    extra={
-                        "session_id": payload.session_id,
-                        "tool_id": ai_response.tool_action.tool_id,
-                        "error": str(e),
-                    }
-                )
-                # Return error as tool result
-                from app.modules.agent.schemas import ToolResult
-                tool_results = [
-                    ToolResult(
-                        name=ai_response.tool_action.tool_id,
-                        output=f"Error executing tool: {str(e)}"
-                    )
-                ]
-        
+            tool_calls.append(tool_call)
+            tool_results = self._tool_executor.run([tool_call])
+
+            logger.info(
+                "Tool execution completed",
+                extra={
+                    "session_id": payload.session_id,
+                    "tool_id": tool_call.name,
+                    "result_count": len(tool_results),
+                }
+            )
+
         logger.debug(
             "Agent response complete",
             extra={
@@ -158,4 +124,3 @@ class AgentService:
             tool_calls=tool_calls,
             tool_results=tool_results
         )
-

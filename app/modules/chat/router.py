@@ -18,7 +18,7 @@ async def create_session(
     return chat_service.create_session()
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
 async def chat(
     payload: ChatRequest,
     chat_service: ChatService = Depends(get_chat_service),

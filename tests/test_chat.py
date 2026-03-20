@@ -72,7 +72,7 @@ def test_chat_roundtrip() -> None:
     assert first_json["content"] == "echo: hello"
     assert first_json["session_id"] == session_id
     assert first_json["type"] == "text"
-    assert first_json["tool_action"] is None
+    assert "tool_action" not in first_json
     assert "metadata" in first_json
     assert "history" not in first_json
 

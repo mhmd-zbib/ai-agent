@@ -1,67 +1,152 @@
 from datetime import UTC, datetime, timedelta
 import hashlib
+from typing import Final
 
 import bcrypt
 import jwt
 from jwt import InvalidTokenError
 
+from app.modules.users.config import AuthConfig
 from app.modules.users.schemas.response import TokenResponse
-from app.shared.exceptions import AuthenticationError, ConfigurationError
+from app.modules.users.services.auth_interface import IAuthService
+from app.shared.exceptions import AuthenticationError
 
 
-class AuthService:
-    # Pre-hash passwords so bcrypt always receives fixed-size input (<72 bytes).
-    @staticmethod
-    def _prehash_password(password: str) -> bytes:
-        return hashlib.sha256(password.encode("utf-8")).digest()
+class AuthService(IAuthService):
+    """
+    Authentication service implementing JWT token management and password hashing.
+    Uses bcrypt with SHA256 pre-hashing for secure password storage.
+    Implements IAuthService interface for dependency inversion.
+    """
 
-    def __init__(
-        self,
-        secret_key: str,
-        algorithm: str,
-        access_token_expire_minutes: int,
-    ) -> None:
-        if not secret_key:
-            raise ConfigurationError("JWT_SECRET_KEY is required.")
+    # JWT Claim Keys
+    _CLAIM_SUBJECT: Final[str] = "sub"
+    _CLAIM_ISSUED_AT: Final[str] = "iat"
+    _CLAIM_EXPIRATION: Final[str] = "exp"
 
-        self._secret_key = secret_key
-        self._algorithm = algorithm
-        self._access_token_expire_minutes = access_token_expire_minutes
+    # Error Messages
+    _ERROR_INVALID_TOKEN: Final[str] = "Invalid or expired token"
+    _ERROR_MISSING_SUBJECT: Final[str] = "Token missing user identifier"
+    _ERROR_INVALID_PASSWORD_HASH: Final[str] = "Invalid password hash format"
+
+    def __init__(self, config: AuthConfig) -> None:
+        """
+        Initialize the authentication service.
+
+        Args:
+            config: Authentication configuration with JWT and password settings
+
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        self._config = config
 
     def hash_password(self, password: str) -> str:
+        """
+        Hash a password using bcrypt with SHA256 pre-hashing.
+
+        Pre-hashing with SHA256 ensures bcrypt receives fixed-size input (<72 bytes)
+        regardless of original password length.
+
+        Args:
+            password: Plain-text password to hash
+
+        Returns:
+            UTF-8 encoded bcrypt hash string
+        """
         prehashed = self._prehash_password(password)
-        return bcrypt.hashpw(prehashed, bcrypt.gensalt()).decode("utf-8")
+        return bcrypt.hashpw(prehashed, bcrypt.gensalt()).decode(
+            self._config.password_encoding
+        )
 
     def verify_password(self, plain_password: str, password_hash: str) -> bool:
+        """
+        Verify a password against its hash.
+
+        Args:
+            plain_password: Plain-text password to verify
+            password_hash: Bcrypt hash to check against
+
+        Returns:
+            True if password matches hash, False otherwise
+        """
         prehashed = self._prehash_password(plain_password)
         try:
-            return bcrypt.checkpw(prehashed, password_hash.encode("utf-8"))
-        except ValueError:
+            return bcrypt.checkpw(
+                prehashed, password_hash.encode(self._config.password_encoding)
+            )
+        except (ValueError, AttributeError) as exc:
+            # Log the error but don't expose details to caller
+            # ValueError: invalid hash format
+            # AttributeError: password_hash is None or invalid type
             return False
 
     def create_token(self, user_id: str) -> TokenResponse:
+        """
+        Create a JWT access token for a user.
+
+        Args:
+            user_id: Unique identifier for the user
+
+        Returns:
+            TokenResponse containing the JWT token
+        """
+        if not user_id:
+            raise ValueError("user_id cannot be empty")
+
         now = datetime.now(UTC)
-        expires_at = now + timedelta(minutes=self._access_token_expire_minutes)
+        expires_at = now + timedelta(minutes=self._config.access_token_expire_minutes)
+
         payload = {
-            "sub": user_id,
-            "iat": int(now.timestamp()),
-            "exp": int(expires_at.timestamp()),
+            self._CLAIM_SUBJECT: user_id,
+            self._CLAIM_ISSUED_AT: int(now.timestamp()),
+            self._CLAIM_EXPIRATION: int(expires_at.timestamp()),
         }
-        token = jwt.encode(payload, self._secret_key, algorithm=self._algorithm)
+
+        token = jwt.encode(
+            payload, self._config.secret_key, algorithm=self._config.algorithm
+        )
         return TokenResponse(access_token=token)
 
     def decode_subject(self, token: str) -> str:
+        """
+        Decode and validate a JWT token, extracting the user ID.
+
+        Args:
+            token: JWT token to decode
+
+        Returns:
+            User ID (subject) from the token
+
+        Raises:
+            AuthenticationError: If token is invalid, expired, or malformed
+        """
         try:
             payload = jwt.decode(
                 token,
-                self._secret_key,
-                algorithms=[self._algorithm],
+                self._config.secret_key,
+                algorithms=[self._config.algorithm],
             )
         except InvalidTokenError as exc:
-            raise AuthenticationError("Invalid or expired token.") from exc
+            raise AuthenticationError(self._ERROR_INVALID_TOKEN) from exc
 
-        subject = payload.get("sub")
+        subject = payload.get(self._CLAIM_SUBJECT)
         if not isinstance(subject, str) or not subject:
-            raise AuthenticationError("Invalid or expired token.")
+            raise AuthenticationError(self._ERROR_MISSING_SUBJECT)
 
         return subject
+
+    def _prehash_password(self, password: str) -> bytes:
+        """
+        Pre-hash password with SHA256 before bcrypt.
+
+        This ensures bcrypt always receives fixed-size input regardless of
+        password length, avoiding bcrypt's 72-byte limitation.
+
+        Args:
+            password: Plain-text password
+
+        Returns:
+            SHA256 digest as bytes
+        """
+        return hashlib.sha256(password.encode(self._config.password_encoding)).digest()
