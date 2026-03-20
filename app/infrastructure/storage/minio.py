@@ -50,4 +50,3 @@ class MinioStorageClient:
 
     def close(self) -> None:
         return
-

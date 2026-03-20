@@ -5,6 +5,7 @@ This module defines Pydantic models for structured JSON responses
 that the AI agent returns, ensuring consistency across all interactions.
 """
 
+from dataclasses import dataclass, field as dc_field
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -162,3 +163,33 @@ class AIResponse(BaseModel):
             ]
         }
     }
+
+
+# ---------------------------------------------------------------------------
+# Agent input schema (shared between agent and chat modules)
+# ---------------------------------------------------------------------------
+
+class AgentInput(BaseModel):
+    user_message: str = Field(min_length=1, max_length=8000)
+    session_id: str
+    history: list[dict[str, str]]
+
+
+# ---------------------------------------------------------------------------
+# Memory domain types (shared between memory, chat, and IMemoryService)
+# ---------------------------------------------------------------------------
+
+Role = Literal["system", "user", "assistant"]
+
+
+@dataclass(slots=True)
+class MemoryEntry:
+    role: Role
+    content: str
+    created_at: datetime = dc_field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass(slots=True)
+class SessionState:
+    session_id: str
+    messages: list[MemoryEntry]

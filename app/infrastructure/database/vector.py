@@ -4,4 +4,3 @@ class VectorClient:
 
 def get_vector_client() -> VectorClient:
     return VectorClient()
-

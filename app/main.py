@@ -1,18 +1,20 @@
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, cast
+from typing import AsyncIterator
 
 from fastapi import FastAPI
 from redis import Redis
 from sqlalchemy.engine import Engine
 
-from app.modules.agent.llm.base import BaseLLM
-from app.modules.agent.llm.openai_client import OpenAIClient
+from app.infrastructure.database.postgres import create_postgres_engine
+from app.infrastructure.database.redis import create_redis_client
+from app.infrastructure.messaging.rabbitmq import RabbitMQPublisher
+from app.infrastructure.storage.minio import MinioStorageClient
 from app.modules.chat.router import router as chat_router
 from app.modules.chat.services.chat_service import ChatService
+from app.modules.documents.repositories.document_event_repository import RabbitMQDocumentEventRepository
+from app.modules.documents.repositories.document_storage_repository import MinioDocumentStorageRepository
 from app.modules.documents.router import router as documents_router
 from app.modules.documents.services import DocumentService
-from app.modules.documents.services.document_service import EventPublisherPort
-from app.modules.documents.services.document_service import DocumentStoragePort
 from app.modules.memory.repositories.long_term_repository import LongTermRepository
 from app.modules.memory.repositories.short_term_repository import ShortTermRepository
 from app.modules.memory.services.memory_service import MemoryService
@@ -23,12 +25,10 @@ from app.modules.users.router import router as users_router
 from app.modules.users.services.auth_service import AuthService
 from app.modules.users.services.user_service import UserService
 from app.shared.config import Settings, get_settings
-from app.shared.db.postgres import create_postgres_engine
-from app.shared.db.redis import create_redis_client
 from app.shared.exceptions import ConfigurationError, register_exception_handlers
+from app.shared.llm.base import BaseLLM
 from app.shared.logging import configure_logging, get_logger
-from app.shared.messaging import RabbitMQPublisher
-from app.shared.storage import MinioStorageClient
+from app.modules.agent.llm.openai_client import OpenAIClient
 
 logger = get_logger(__name__)
 
@@ -76,7 +76,7 @@ def create_chat_service(
     )
 
     llm_client = _create_llm_client(settings)
-    
+
     # Initialize tool system
     tool_registry = get_tool_registry()
     logger.info(
@@ -88,9 +88,9 @@ def create_chat_service(
     )
 
     return ChatService(
-        llm=llm_client, 
+        llm=llm_client,
         memory_service=memory_service,
-        tool_registry=tool_registry
+        tool_registry=tool_registry,
     )
 
 
@@ -107,23 +107,27 @@ def create_user_service(settings: Settings, postgres_engine: Engine) -> UserServ
 
 
 def create_document_service(settings: Settings) -> DocumentService:
-    storage = MinioStorageClient(
-        endpoint=settings.minio_endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        bucket_name=settings.minio_bucket_name,
-        secure=settings.minio_secure,
+    storage_repo = MinioDocumentStorageRepository(
+        MinioStorageClient(
+            endpoint=settings.minio_endpoint,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
+            bucket_name=settings.minio_bucket_name,
+            secure=settings.minio_secure,
+        )
     )
-    publisher = RabbitMQPublisher(
-        amqp_url=settings.rabbitmq_url,
-        exchange=settings.rabbitmq_document_exchange,
-        routing_key=settings.rabbitmq_document_routing_key,
+    event_repo = RabbitMQDocumentEventRepository(
+        RabbitMQPublisher(
+            amqp_url=settings.rabbitmq_url,
+            exchange=settings.rabbitmq_document_exchange,
+            routing_key=settings.rabbitmq_document_routing_key,
+        )
     )
     return DocumentService(
         bucket_name=settings.minio_bucket_name,
         default_chunk_size_bytes=settings.document_chunk_size_bytes,
-        storage=cast(DocumentStoragePort, cast(object, storage)),
-        event_publisher=cast(EventPublisherPort, cast(object, publisher)),
+        storage=storage_repo,
+        event_publisher=event_repo,
     )
 
 

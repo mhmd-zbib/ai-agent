@@ -6,8 +6,8 @@ from typing import Any, Literal, Optional
 from openai import OpenAI
 from pydantic import ValidationError
 
-from app.modules.agent.llm.base import BaseLLM
-from app.modules.agent.schemas import AgentInput
+from app.shared.llm.base import BaseLLM
+from app.shared.schemas import AgentInput
 from app.shared.exceptions import ConfigurationError, UpstreamServiceError
 from app.shared.logging import get_logger
 from app.shared.schemas import AIResponse, ResponseMetadata, ToolAction

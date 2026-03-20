@@ -1,21 +1,12 @@
 import json
-from typing import Protocol
 from uuid import uuid4
 
 from fastapi import UploadFile
 
+from app.modules.documents.repositories.document_event_repository import IDocumentEventRepository
+from app.modules.documents.repositories.document_storage_repository import IDocumentStorageRepository
 from app.modules.documents.schemas import DocumentUploadResponse, DocumentUploadedEvent
 from app.shared.exceptions import UpstreamServiceError
-
-
-class DocumentStoragePort(Protocol):
-    def upload_bytes(self, *, object_key: str, payload: bytes, content_type: str | None = None) -> None:
-        ...
-
-
-class EventPublisherPort(Protocol):
-    def publish_json(self, payload: dict[str, object]) -> None:
-        ...
 
 
 class DocumentService:
@@ -24,8 +15,8 @@ class DocumentService:
         *,
         bucket_name: str,
         default_chunk_size_bytes: int,
-        storage: DocumentStoragePort,
-        event_publisher: EventPublisherPort,
+        storage: IDocumentStorageRepository,
+        event_publisher: IDocumentEventRepository,
     ) -> None:
         self._bucket_name = bucket_name
         self._default_chunk_size_bytes = default_chunk_size_bytes

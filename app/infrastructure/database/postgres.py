@@ -15,4 +15,3 @@ def create_postgres_engine(
         max_overflow=max_overflow,
         pool_timeout=pool_timeout_seconds,
     )
-

@@ -6,7 +6,7 @@ from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError, TimeoutError as RedisTimeoutError
 
-from app.modules.memory.schemas import MemoryEntry
+from app.shared.schemas import MemoryEntry
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)

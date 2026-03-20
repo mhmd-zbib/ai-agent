@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError, OperationalError, TimeoutError
 
-from app.modules.memory.schemas import MemoryEntry
+from app.shared.schemas import MemoryEntry
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)

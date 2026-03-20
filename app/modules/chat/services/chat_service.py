@@ -1,14 +1,11 @@
 from uuid import uuid4
 from typing import Literal
 
-from app.modules.agent.llm.base import BaseLLM
-from app.modules.agent.schemas import AgentInput
 from app.modules.chat.schemas import ChatRequest, ChatResponse, SessionCreateResponse, SessionResetResponse
-from app.modules.memory.schemas import MemoryEntry
-from app.modules.memory.services.memory_service import MemoryService
-from app.modules.tools.registry import ToolRegistry
+from app.shared.llm.base import BaseLLM
 from app.shared.logging import get_logger
-from app.shared.schemas import AIResponse
+from app.shared.protocols import IMemoryService, IToolRegistry
+from app.shared.schemas import AgentInput, AIResponse, MemoryEntry
 
 logger = get_logger(__name__)
 
@@ -16,21 +13,21 @@ logger = get_logger(__name__)
 class ChatService:
     """
     Chat service that processes user messages and returns structured AI responses.
-    
+
     This service determines the appropriate response mode:
     - "chat" mode: Normal conversational responses for general queries
     - "tool_call" mode: Structured JSON responses when tool execution is needed
-    
+
     The response mode is currently defaulted to "chat" for all interactions.
     Future integration with semantic search will enable dynamic mode selection
     based on whether relevant tools are found for the user's query.
     """
-    
+
     def __init__(
-        self, 
-        llm: BaseLLM, 
-        memory_service: MemoryService,
-        tool_registry: ToolRegistry
+        self,
+        llm: BaseLLM,
+        memory_service: IMemoryService,
+        tool_registry: IToolRegistry,
     ) -> None:
         self._llm = llm
         self._memory_service = memory_service
@@ -240,7 +237,7 @@ class ChatService:
                 "confidence": ai_response.metadata.confidence if ai_response.metadata else None,
             }
         )
-        
+
         had_tool_action = ai_response.tool_action is not None
         ai_response = self._execute_tool_action(session_id=session_id, ai_response=ai_response)
 

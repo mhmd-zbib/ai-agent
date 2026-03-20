@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from typing import Protocol
 
-from app.modules.memory.schemas import MemoryEntry, SessionState
+from app.shared.schemas import MemoryEntry, SessionState
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)

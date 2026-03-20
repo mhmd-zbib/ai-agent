@@ -1,8 +1,3 @@
-from pydantic import BaseModel, Field
+from app.shared.schemas import AgentInput
 
-
-class AgentInput(BaseModel):
-    user_message: str = Field(min_length=1, max_length=8000)
-    session_id: str
-    history: list[dict[str, str]]
-
+__all__ = ["AgentInput"]

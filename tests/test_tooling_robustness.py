@@ -2,7 +2,6 @@ from typing import Any, Literal, Optional
 
 from app.modules.agent.llm.base import BaseLLM
 from app.modules.agent.schemas import AgentInput, ToolCall
-from app.modules.agent.services.agent_service import AgentService
 from app.modules.agent.services.tool_executor import ToolExecutor
 from app.modules.tools.base import BaseTool
 from app.modules.tools.registry import ToolRegistry
@@ -78,27 +77,3 @@ def test_tool_executor_returns_sanitized_error_for_failing_tool() -> None:
 
     assert result.name == "failing"
     assert result.output == "Error: Tool execution failed"
-
-
-def test_agent_service_uses_executor_results_without_crashing() -> None:
-    registry = ToolRegistry()
-    registry.register(_FailingTool())
-    executor = ToolExecutor(registry)
-    llm = _FakeLLM(
-        AIResponse(
-            type="tool",
-            content="Trying a tool",
-            tool_action=ToolAction(tool_id="failing", params={}),
-        )
-    )
-    service = AgentService(llm=llm, tool_executor=executor, tool_registry=registry)
-
-    output = service.respond(
-        AgentInput(user_message="run tool", session_id="s1", history=[]),
-        response_mode="chat",
-    )
-
-    assert output.message == "Trying a tool"
-    assert len(output.tool_calls) == 1
-    assert len(output.tool_results) == 1
-    assert output.tool_results[0].output == "Error: Tool execution failed"

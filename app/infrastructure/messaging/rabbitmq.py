@@ -35,4 +35,3 @@ class RabbitMQPublisher:
 
     def close(self) -> None:
         return
-

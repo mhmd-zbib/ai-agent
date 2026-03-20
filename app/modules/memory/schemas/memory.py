@@ -1,20 +1,3 @@
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from typing import Literal
+from app.shared.schemas import MemoryEntry, Role, SessionState
 
-
-Role = Literal["system", "user", "assistant"]
-
-
-@dataclass(slots=True)
-class MemoryEntry:
-    role: Role
-    content: str
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-
-
-@dataclass(slots=True)
-class SessionState:
-    session_id: str
-    messages: list[MemoryEntry]
-
+__all__ = ["MemoryEntry", "Role", "SessionState"]
