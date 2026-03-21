@@ -1,7 +1,12 @@
 import logging
+from typing import TYPE_CHECKING
 
 from app.modules.rag.repositories.base_vector_repository import BaseVectorRepository
 from app.modules.rag.schemas import SearchQuery, SearchResult
+
+if TYPE_CHECKING:
+    from app.infrastructure.embedding.openai import OpenAIEmbeddingClient
+    from app.infrastructure.vector.base import IVectorClient
 
 logger = logging.getLogger(__name__)
 
@@ -121,3 +126,38 @@ class InMemoryVectorRepository(BaseVectorRepository):
         self._vectors.extend(embeddings)
         logger.info(f"Stored {len(embeddings)} embeddings in memory")
 
+
+class QdrantVectorRepository(BaseVectorRepository):
+    """
+    Real vector repository backed by QdrantVectorClient + OpenAIEmbeddingClient.
+
+    Embeds the query text on search and delegates to the Qdrant client.
+    Namespace (user_id) is passed through for tenant isolation.
+    """
+
+    def __init__(
+        self,
+        vector_client: "IVectorClient",
+        embedding_client: "OpenAIEmbeddingClient",
+    ) -> None:
+        self._vector_client = vector_client
+        self._embedding_client = embedding_client
+
+    def search(self, query: SearchQuery) -> list[SearchResult]:
+        vector = self._embedding_client.embed(query.text)
+        hits = self._vector_client.query(
+            vector=vector,
+            top_k=query.top_k,
+            namespace=query.user_id,
+        )
+        return [
+            SearchResult(
+                chunk_id=hit["id"],
+                score=hit["score"],
+                text=hit["metadata"].get("chunk_text", ""),
+            )
+            for hit in hits
+        ]
+
+    def upsert(self, embeddings: list[dict[str, object]]) -> None:
+        raise NotImplementedError("Use the ingestion pipeline to upsert embeddings.")

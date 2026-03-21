@@ -159,20 +159,20 @@ class QdrantVectorClient:
         filter: dict | None = None,
     ) -> list[dict]:
         self._ensure_collection()
-        results = self._client.search(
+        response = self._client.query_points(
             collection_name=self._collection,
-            query_vector=vector,
+            query=vector,
             limit=top_k,
             query_filter=self._namespace_filter(namespace),
             with_payload=True,
         )
         return [
             {
-                "id": hit.payload.get("_chunk_id", str(hit.id)),
+                "id": (hit.payload or {}).get("_chunk_id", str(hit.id)),
                 "score": hit.score,
                 "metadata": {k: v for k, v in (hit.payload or {}).items() if k != "_chunk_id"},
             }
-            for hit in results
+            for hit in response.points
         ]
 
     def delete(self, *, vector_ids: list[str], namespace: str = "") -> None:

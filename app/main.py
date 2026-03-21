@@ -115,10 +115,25 @@ def create_chat_service(
         }
     )
 
+    # Wire RAG service for on-demand retrieval (use_rag=True in ChatRequest)
+    rag_service = None
+    if _rag_vector_client and _rag_embedding_client:
+        from app.modules.rag.repositories.vector_repository import QdrantVectorRepository
+        from app.modules.rag.services.rag_service import RAGService
+        from app.modules.rag.services.reranker import PassthroughReranker
+
+        rag_service = RAGService(
+            vector_repository=QdrantVectorRepository(_rag_vector_client, _rag_embedding_client),
+            reranker=PassthroughReranker(),
+            enable_reranking=False,
+        )
+        logger.info("RAG service initialized")
+
     return ChatService(
         llm=llm_client,
         memory_service=memory_service,
         tool_registry=tool_registry,
+        rag_service=rag_service,
     )
 
 

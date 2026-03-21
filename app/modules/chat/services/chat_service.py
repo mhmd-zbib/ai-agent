@@ -1,11 +1,16 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
-from typing import Literal
 
 from app.modules.chat.schemas import ChatRequest, ChatResponse, SessionCreateResponse, SessionResetResponse
 from app.shared.llm.base import BaseLLM
 from app.shared.logging import get_logger
 from app.shared.protocols import IMemoryService, IToolRegistry
 from app.shared.schemas import AgentInput, AIResponse, MemoryEntry
+
+if TYPE_CHECKING:
+    from app.modules.rag.services.rag_service import RAGService
 
 logger = get_logger(__name__)
 
@@ -28,10 +33,12 @@ class ChatService:
         llm: BaseLLM,
         memory_service: IMemoryService,
         tool_registry: IToolRegistry,
+        rag_service: RAGService | None = None,
     ) -> None:
         self._llm = llm
         self._memory_service = memory_service
         self._tool_registry = tool_registry
+        self._rag_service = rag_service
 
     def create_session(self) -> SessionCreateResponse:
         session_id = str(uuid4())
@@ -119,9 +126,40 @@ class ChatService:
 
         return ai_response
 
-    def _build_agent_input(self, payload: ChatRequest, state_messages: list[MemoryEntry]) -> AgentInput:
+    def _retrieve_context(self, message: str, user_id: str) -> str | None:
+        """Embed *message*, query Qdrant, and return formatted context or None."""
+        if self._rag_service is None:
+            return None
+        from app.modules.rag.schemas import SearchQuery
+
+        try:
+            results = self._rag_service.search(
+                SearchQuery(text=message, top_k=5, user_id=user_id)
+            )
+        except Exception as exc:
+            logger.warning("RAG retrieval failed; continuing without context", extra={"error": str(exc)})
+            return None
+
+        if not results:
+            return None
+
+        lines = [f"[{i + 1}] {r.text}" for i, r in enumerate(results)]
+        return "\n".join(lines)
+
+    def _build_agent_input(
+        self,
+        payload: ChatRequest,
+        state_messages: list[MemoryEntry],
+        context: str | None = None,
+    ) -> AgentInput:
+        user_message = payload.message
+        if context:
+            user_message = (
+                f"{payload.message}\n\n"
+                f"<context>\n{context}\n</context>"
+            )
         return AgentInput(
-            user_message=payload.message,
+            user_message=user_message,
             session_id=payload.session_id,
             history=[{"role": item.role, "content": item.content} for item in state_messages],
         )
@@ -209,7 +247,20 @@ class ChatService:
         session_id = payload.session_id
         state = self._memory_service.get_session_state(session_id)
 
-        agent_input = self._build_agent_input(payload=payload, state_messages=state.messages)
+        context: str | None = None
+        if payload.use_rag:
+            context = self._retrieve_context(payload.message, user_id)
+            if context:
+                logger.info(
+                    "RAG context retrieved",
+                    extra={"session_id": session_id, "chunks": context.count("\n") + 1},
+                )
+            else:
+                logger.info("RAG enabled but no context retrieved", extra={"session_id": session_id})
+
+        agent_input = self._build_agent_input(
+            payload=payload, state_messages=state.messages, context=context
+        )
 
         # TODO: Determine response mode based on semantic tool search
         response_mode: Literal["chat", "tool_call"] = self._resolve_response_mode()
