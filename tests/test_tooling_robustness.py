@@ -1,7 +1,8 @@
 from typing import Any, Literal, Optional
 
-from app.modules.agent.llm.base import BaseLLM
-from app.modules.agent.schemas import AgentInput, ToolCall
+from app.modules.agent.schemas import ToolCall
+from app.shared.llm.base import BaseLLM
+from app.shared.schemas import AgentInput
 from app.modules.agent.services.tool_executor import ToolExecutor
 from app.modules.tools.base import BaseTool
 from app.modules.tools.registry import ToolRegistry

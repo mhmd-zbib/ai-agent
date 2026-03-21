@@ -6,8 +6,8 @@ from app.modules.tools.registry import ToolRegistry
 from app.shared.schemas import AIResponse, ToolAction
 from typing import Any, Literal, Optional
 
-from app.modules.agent.llm.base import BaseLLM
-from app.modules.agent.schemas import AgentInput
+from app.shared.llm.base import BaseLLM
+from app.shared.schemas import AgentInput
 
 
 class _FakeMemoryService:

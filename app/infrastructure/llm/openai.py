@@ -6,11 +6,10 @@ from typing import Any, Literal, Optional
 from openai import OpenAI
 from pydantic import ValidationError
 
-from app.shared.llm.base import BaseLLM
-from app.shared.schemas import AgentInput
 from app.shared.exceptions import ConfigurationError, UpstreamServiceError
+from app.shared.llm.base import BaseLLM
 from app.shared.logging import get_logger
-from app.shared.schemas import AIResponse, ResponseMetadata, ToolAction
+from app.shared.schemas import AgentInput, AIResponse, ResponseMetadata, ToolAction
 
 logger = get_logger(__name__)
 
@@ -21,7 +20,7 @@ class OpenAIClient(BaseLLM):
         api_key: str | None,
         base_url: str | None,
         model: str,
-        system_prompt: str
+        system_prompt: str,
     ) -> None:
         if api_key:
             kwargs = {"api_key": api_key}
@@ -208,11 +207,11 @@ class OpenAIClient(BaseLLM):
         self,
         payload: AgentInput,
         response_mode: Literal["chat", "tool_call"] = "chat",
-        tools: Optional[list[dict[str, Any]]] = None
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> AIResponse:
         """
         Generate response from OpenAI.
-        
+
         Args:
             payload: Input including user message and history
             response_mode:
@@ -225,8 +224,6 @@ class OpenAIClient(BaseLLM):
 
         messages = self._build_messages(payload=payload, response_mode=response_mode)
 
-        # In chat mode, we get plain text and wrap it
-        # In tool_call mode, we enforce JSON structure
         if response_mode == "chat":
             return self._generate_chat_mode(messages, tools)
         return self._generate_tool_mode(messages)
@@ -234,7 +231,7 @@ class OpenAIClient(BaseLLM):
     def _generate_chat_mode(
         self,
         messages: list,
-        tools: Optional[list[dict[str, Any]]] = None
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> AIResponse:
         """Generate normal conversational response with optional native function calling."""
         try:
@@ -263,10 +260,9 @@ class OpenAIClient(BaseLLM):
                     "has_content": bool(content),
                     "has_tool_calls": bool(tool_calls),
                     "tool_call_count": len(tool_calls) if tool_calls else 0,
-                }
+                },
             )
-            
-            # Parse tool_calls if present
+
             parsed_tool_action = None
             if tool_calls:
                 parsed_tool_action = self._parse_tool_calls(tool_calls)
@@ -282,17 +278,16 @@ class OpenAIClient(BaseLLM):
                     "response_type": response_type,
                     "content_length": len(content),
                     "has_tool_action": parsed_tool_action is not None,
-                }
+                },
             )
-            
-            # Build AIResponse
+
             return AIResponse(
                 type=response_type,
                 content=content,
                 tool_action=parsed_tool_action,
-                metadata=ResponseMetadata()
+                metadata=ResponseMetadata(),
             )
-            
+
         except Exception as e:
             logger.error(
                 "Error in chat mode generation",
@@ -301,7 +296,7 @@ class OpenAIClient(BaseLLM):
             raise UpstreamServiceError(
                 f"Failed to generate chat response from OpenAI: {e}"
             ) from e
-    
+
     def _generate_tool_mode(self, messages: list) -> AIResponse:
         """Generate structured JSON response with tool actions."""
         max_retries = 3
@@ -333,13 +328,13 @@ class OpenAIClient(BaseLLM):
                     extra={
                         "content_length": len(ai_content),
                         "attempt": attempt + 1,
-                    }
+                    },
                 )
 
                 ai_response = self._parse_tool_mode_response(ai_content)
                 logger.info(
                     "Successfully generated valid AI response",
-                    extra={"attempt": attempt + 1}
+                    extra={"attempt": attempt + 1},
                 )
                 return ai_response
 
@@ -351,7 +346,7 @@ class OpenAIClient(BaseLLM):
                         "error": str(e),
                         "attempt": attempt + 1,
                         "content": ai_content[:200] if ai_content else None,
-                    }
+                    },
                 )
 
                 if attempt < max_retries - 1:
@@ -376,4 +371,3 @@ class OpenAIClient(BaseLLM):
                 raise UpstreamServiceError(
                     f"Failed to generate response from OpenAI: {e}"
                 ) from e
-

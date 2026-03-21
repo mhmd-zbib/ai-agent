@@ -1,12 +1,12 @@
 from app.modules.agent.schemas import ToolCall, ToolResult
-from app.modules.tools.registry import ToolRegistry
 from app.shared.logging import get_logger
+from app.shared.protocols import IToolRegistry
 
 logger = get_logger(__name__)
 
 
 class ToolExecutor:
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(self, registry: IToolRegistry) -> None:
         self._registry = registry
 
     def _run_single(self, call: ToolCall) -> ToolResult:

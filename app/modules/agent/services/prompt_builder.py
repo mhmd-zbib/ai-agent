@@ -7,9 +7,13 @@ is operating in (chat vs tool_call).
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
-from app.modules.tools.base import BaseTool
+
+class _ToolInfo(Protocol):
+    name: str
+    description: str
+    parameters: dict[str, Any]
 
 
 class PromptBuilder:
@@ -42,7 +46,7 @@ class PromptBuilder:
 - Use a friendly but professional tone"""
     
     @staticmethod
-    def build_tool_prompt(tools: list[BaseTool]) -> str:
+    def build_tool_prompt(tools: list[_ToolInfo]) -> str:
         """
         Generate system prompt for tool-enabled responses.
         
@@ -161,7 +165,7 @@ class PromptBuilder:
 ```"""
     
     @staticmethod
-    def _format_tools(tools: list[BaseTool]) -> str:
+    def _format_tools(tools: list[_ToolInfo]) -> str:
         """
         Format tools list into readable documentation.
         

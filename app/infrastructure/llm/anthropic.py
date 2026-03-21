@@ -1,9 +1,8 @@
 from typing import Any, Literal, Optional
 
-from app.modules.agent.llm.base import BaseLLM
-from app.modules.agent.schemas import AgentInput
 from app.shared.exceptions import UpstreamServiceError
-from app.shared.schemas import AIResponse
+from app.shared.llm.base import BaseLLM
+from app.shared.schemas import AgentInput, AIResponse
 
 
 class AnthropicClient(BaseLLM):

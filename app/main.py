@@ -26,9 +26,9 @@ from app.modules.users.services.auth_service import AuthService
 from app.modules.users.services.user_service import UserService
 from app.shared.config import Settings, get_settings
 from app.shared.exceptions import ConfigurationError, register_exception_handlers
+from app.infrastructure.llm.openai import OpenAIClient
 from app.shared.llm.base import BaseLLM
 from app.shared.logging import configure_logging, get_logger
-from app.modules.agent.llm.openai_client import OpenAIClient
 
 logger = get_logger(__name__)
 

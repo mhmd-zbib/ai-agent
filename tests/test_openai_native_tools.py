@@ -5,8 +5,8 @@ import json
 from unittest.mock import Mock, MagicMock
 import pytest
 
-from app.modules.agent.llm.openai_client import OpenAIClient
-from app.modules.agent.schemas import AgentInput
+from app.infrastructure.llm.openai import OpenAIClient
+from app.shared.schemas import AgentInput
 from app.shared.schemas import AIResponse
 
 
