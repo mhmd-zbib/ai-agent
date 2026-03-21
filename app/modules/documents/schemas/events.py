@@ -9,6 +9,7 @@ class DocumentUploadedEvent(BaseModel):
     event_type: Literal["document.uploaded"] = "document.uploaded"
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
+    document_id: str = Field(description="Postgres documents.document_id (UUID)")
     upload_id: str = Field(description="Logical upload ID")
     user_id: str | None = Field(default=None, description="Authenticated uploader ID")
     file_name: str = Field(description="Original file name")
@@ -16,10 +17,7 @@ class DocumentUploadedEvent(BaseModel):
 
     bucket: str = Field(description="Target MinIO bucket")
     object_prefix: str = Field(description="Prefix that holds chunk objects")
-    manifest_key: str = Field(description="Manifest object key")
-    chunk_keys: list[str] = Field(default_factory=list, description="Uploaded chunk object keys")
+    manifest_key: str = Field(description="Manifest object key — worker reads this to locate chunks")
 
-    chunk_size_bytes: int = Field(gt=0, description="Configured upload chunk size")
-    chunk_count: int = Field(ge=0, description="Number of chunks written")
-    total_size_bytes: int = Field(ge=0, description="Total uploaded bytes")
-
+    chunk_count: int = Field(ge=0)
+    total_size_bytes: int = Field(ge=0)

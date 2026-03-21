@@ -1,5 +1,7 @@
+import threading
+from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI
 from redis import Redis
@@ -7,7 +9,7 @@ from sqlalchemy.engine import Engine
 
 from app.infrastructure.database.postgres import create_postgres_engine
 from app.infrastructure.database.redis import create_redis_client
-from app.infrastructure.messaging.rabbitmq import RabbitMQPublisher
+from app.infrastructure.messaging.rabbitmq import RabbitMQConsumer, RabbitMQPublisher, publish_to_queue, publish_batch_to_queue, setup_pipeline_topology
 from app.infrastructure.storage.minio import MinioStorageClient
 from app.modules.chat.router import router as chat_router
 from app.modules.chat.services.chat_service import ChatService
@@ -15,6 +17,7 @@ from app.modules.documents.repositories.document_event_repository import RabbitM
 from app.modules.documents.repositories.document_storage_repository import MinioDocumentStorageRepository
 from app.modules.documents.router import router as documents_router
 from app.modules.documents.services import DocumentService
+from app.modules.pipeline.repositories.document_status_repository import DocumentStatusRepository
 from app.modules.memory.repositories.long_term_repository import LongTermRepository
 from app.modules.memory.repositories.short_term_repository import ShortTermRepository
 from app.modules.memory.services.memory_service import MemoryService
@@ -106,7 +109,7 @@ def create_user_service(settings: Settings, postgres_engine: Engine) -> UserServ
     return UserService(repository=user_repository, auth_service=auth_service)
 
 
-def create_document_service(settings: Settings) -> DocumentService:
+def create_document_service(settings: Settings, postgres_engine: Engine) -> DocumentService:
     storage_repo = MinioDocumentStorageRepository(
         MinioStorageClient(
             endpoint=settings.minio_endpoint,
@@ -116,19 +119,170 @@ def create_document_service(settings: Settings) -> DocumentService:
             secure=settings.minio_secure,
         )
     )
+    # Fanout exchange so multiple consumers can bind (analytics, logging, etc.)
     event_repo = RabbitMQDocumentEventRepository(
         RabbitMQPublisher(
             amqp_url=settings.rabbitmq_url,
-            exchange=settings.rabbitmq_document_exchange,
-            routing_key=settings.rabbitmq_document_routing_key,
+            exchange=settings.rabbitmq_document_fanout_exchange,
+            routing_key="",  # Fanout ignores routing key
+            exchange_type="fanout",
         )
     )
+    status_repo = DocumentStatusRepository(postgres_engine)
+    status_repo.ensure_schema()
+
     return DocumentService(
         bucket_name=settings.minio_bucket_name,
         default_chunk_size_bytes=settings.document_chunk_size_bytes,
         storage=storage_repo,
         event_publisher=event_repo,
+        document_status_repository=status_repo,
     )
+
+
+def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None:
+    """
+    Start the 4 RAG pipeline consumers as daemon threads.
+
+    All workers share the same Postgres engine and MinIO client created at
+    app startup. Each worker gets its own RabbitMQ channel (pika connections
+    are not thread-safe, so each thread opens its own).
+
+    Workers that require missing credentials (Pinecone, OpenAI) are skipped
+    with a warning so the rest of the pipeline still starts.
+    """
+    from app.infrastructure.embedding.openai import OpenAIEmbeddingClient
+    from app.infrastructure.vector.pinecone import PineconeVectorClient
+    from app.modules.documents.schemas.events import DocumentUploadedEvent
+    from app.modules.pipeline.repositories.document_status_repository import DocumentStatusRepository
+    from app.modules.pipeline.schemas.events import ChunkEvent, EmbedEvent, ParsedEvent
+    from app.modules.pipeline.services.chunk_service import ChunkService
+    from app.modules.pipeline.services.embed_service import EmbedService
+    from app.modules.pipeline.services.parse_service import ParseService
+    from app.modules.pipeline.services.store_service import StoreService
+
+    # --- Shared services (created once, used across all worker threads) ---
+    status_repo = DocumentStatusRepository(postgres_engine)
+    status_repo.ensure_schema()
+
+    storage = MinioStorageClient(
+        endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        bucket_name=settings.minio_bucket_name,
+        secure=settings.minio_secure,
+    )
+
+    parse_service = ParseService(storage=storage, status_repository=status_repo)
+    chunk_service = ChunkService(
+        storage=storage,
+        status_repository=status_repo,
+        window_tokens=settings.chunk_window_tokens,
+        overlap_tokens=settings.chunk_overlap_tokens,
+        encoding=settings.chunk_encoding,
+    )
+
+    # --- Handler functions (one per stage) ---
+    def _parse_handler(payload: dict[str, Any]) -> None:
+        event = DocumentUploadedEvent.model_validate(payload)
+        parsed = parse_service.process(event)
+        publish_to_queue(
+            settings.rabbitmq_url,
+            settings.rabbitmq_chunk_queue,
+            parsed.model_dump(mode="json"),
+        )
+
+    def _chunk_handler(payload: dict[str, Any]) -> None:
+        event = ParsedEvent.model_validate(payload)
+        chunk_events = chunk_service.process(event)
+        publish_batch_to_queue(
+            settings.rabbitmq_url,
+            settings.rabbitmq_embed_queue,
+            [ce.model_dump(mode="json") for ce in chunk_events],
+        )
+
+    workers: list[tuple[str, str, str, Callable]] = [
+        ("parse", settings.rabbitmq_parse_queue, settings.rabbitmq_parse_dlq, _parse_handler),
+        ("chunk", settings.rabbitmq_chunk_queue, settings.rabbitmq_chunk_dlq, _chunk_handler),
+    ]
+
+    # Embed worker — needs a real API key.
+    # Prefers EMBEDDING_API_KEY; falls back to OPENAI_API_KEY.
+    # Skips if neither is set or both are the placeholder "not-needed".
+    _embed_api_key = settings.embedding_api_key or settings.openai_api_key
+    if _embed_api_key and _embed_api_key != "not-needed":
+        _embedding_client = OpenAIEmbeddingClient(
+            api_key=_embed_api_key,
+            model=settings.embedding_model,
+            base_url=settings.embedding_base_url,
+            dimensions=settings.embedding_dimension,
+            max_retries=settings.embedding_max_retries,
+        )
+        embed_service = EmbedService(
+            embedding_client=_embedding_client,
+            status_repository=status_repo,
+        )
+
+        def _embed_handler(payload: dict[str, Any]) -> None:
+            event = ChunkEvent.model_validate(payload)
+            embed_event = embed_service.process(event)
+            publish_to_queue(
+                settings.rabbitmq_url,
+                settings.rabbitmq_store_queue,
+                embed_event.model_dump(mode="json"),
+            )
+
+        workers.append(("embed", settings.rabbitmq_embed_queue, settings.rabbitmq_embed_dlq, _embed_handler))
+    else:
+        logger.warning(
+            "Embed worker not started: set EMBEDDING_API_KEY (or OPENAI_API_KEY) to enable embeddings"
+        )
+
+    # Store worker — requires Pinecone
+    if settings.pinecone_api_key:
+        pinecone_client = PineconeVectorClient(
+            api_key=settings.pinecone_api_key,
+            index_name=settings.pinecone_index_name,
+            dimension=settings.embedding_dimension,
+            cloud=settings.pinecone_cloud,
+            region=settings.pinecone_region,
+        )
+        store_service = StoreService(
+            pinecone_client=pinecone_client,
+            status_repository=status_repo,
+        )
+
+        def _store_handler(payload: dict[str, Any]) -> None:
+            event = EmbedEvent.model_validate(payload)
+            store_service.process(event)
+
+        workers.append(("store", settings.rabbitmq_store_queue, settings.rabbitmq_store_dlq, _store_handler))
+    else:
+        logger.warning("Store worker not started: set PINECONE_API_KEY to enable vector storage")
+
+    # --- Spawn a daemon thread per worker ---
+    for name, queue, dlq, handler in workers:
+        consumer = RabbitMQConsumer(
+            amqp_url=settings.rabbitmq_url,
+            queue_name=queue,
+            dlq_name=dlq,
+        )
+
+        def _make_target(consumer: RabbitMQConsumer, handler: Callable, worker_name: str) -> Callable:
+            def _run() -> None:
+                try:
+                    consumer.consume_forever(handler)
+                except Exception:
+                    logger.exception("Pipeline worker crashed", extra={"worker": worker_name})
+            return _run
+
+        thread = threading.Thread(
+            target=_make_target(consumer, handler, name),
+            name=f"pipeline-{name}",
+            daemon=True,
+        )
+        thread.start()
+        logger.info("Pipeline worker started", extra={"worker": name, "queue": queue})
 
 
 def _startup_services(app: FastAPI, settings: Settings) -> None:
@@ -152,7 +306,36 @@ def _startup_services(app: FastAPI, settings: Settings) -> None:
         )
 
     if not hasattr(app.state, "document_service"):
-        app.state.document_service = create_document_service(settings)
+        # Ensure the full pipeline topology exists in RabbitMQ before the first
+        # document.uploaded event is published (idempotent, safe to call on every boot).
+        try:
+            setup_pipeline_topology(
+                amqp_url=settings.rabbitmq_url,
+                fanout_exchange=settings.rabbitmq_document_fanout_exchange,
+                queues=[
+                    (settings.rabbitmq_parse_queue, settings.rabbitmq_parse_dlq),
+                    (settings.rabbitmq_chunk_queue, settings.rabbitmq_chunk_dlq),
+                    (settings.rabbitmq_embed_queue, settings.rabbitmq_embed_dlq),
+                    (settings.rabbitmq_store_queue, settings.rabbitmq_store_dlq),
+                ],
+            )
+        except Exception:
+            logger.warning(
+                "Could not set up RabbitMQ pipeline topology — "
+                "ensure RabbitMQ is running before uploading documents"
+            )
+
+        app.state.document_service = create_document_service(
+            settings,
+            app.state.postgres_engine,
+        )
+
+    if not hasattr(app.state, "pipeline_workers_started"):
+        try:
+            _start_pipeline_workers(settings, app.state.postgres_engine)
+            app.state.pipeline_workers_started = True
+        except Exception:
+            logger.exception("Failed to start pipeline workers")
 
 
 def _shutdown_services(app: FastAPI) -> None:
@@ -211,10 +394,10 @@ def create_app() -> FastAPI:
 app = create_app()
 
 __all__ = [
+    "_create_llm_client",
     "app",
     "create_app",
     "create_chat_service",
-    "create_user_service",
     "create_document_service",
-    "_create_llm_client",
+    "create_user_service",
 ]

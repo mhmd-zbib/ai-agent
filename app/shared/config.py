@@ -71,9 +71,11 @@ class Settings(BaseSettings):
         alias="PINECONE_ENVIRONMENT",
     )
     pinecone_index_name: str = Field(
-        default="agent-tools",
+        default="agent-documents",
         alias="PINECONE_INDEX_NAME",
     )
+    pinecone_cloud: str = Field(default="aws", alias="PINECONE_CLOUD")
+    pinecone_region: str = Field(default="us-east-1", alias="PINECONE_REGION")
     embedding_model: str = Field(
         default="text-embedding-3-small",
         alias="EMBEDDING_MODEL",
@@ -81,6 +83,30 @@ class Settings(BaseSettings):
     embedding_dimension: int = Field(
         default=1536,
         alias="EMBEDDING_DIMENSION",
+    )
+    # Embedding model credentials — independent of the chat LLM.
+    # Falls back to OPENAI_API_KEY / OPENAI_BASE_URL when not explicitly set.
+    embedding_api_key: str | None = Field(
+        default=None,
+        alias="EMBEDDING_API_KEY",
+        description=(
+            "API key for the embedding endpoint. "
+            "Falls back to OPENAI_API_KEY when not set."
+        ),
+    )
+    embedding_base_url: str | None = Field(
+        default=None,
+        alias="EMBEDDING_BASE_URL",
+        description=(
+            "Base URL for an OpenAI-compatible embedding endpoint. "
+            "Leave empty to use the standard OpenAI API. "
+            "Set to e.g. http://localhost:11434/v1 for Ollama embeddings."
+        ),
+    )
+    embedding_max_retries: int = Field(
+        default=3,
+        alias="EMBEDDING_MAX_RETRIES",
+        description="SDK-level retry attempts on 429 / 5xx before raising.",
     )
 
     # Document pipeline infrastructure
@@ -110,6 +136,33 @@ class Settings(BaseSettings):
         default=1024 * 1024,
         alias="DOCUMENT_CHUNK_SIZE_BYTES",
     )
+
+    # RAG pipeline — fanout exchange (Stage 0 → Stage 1)
+    rabbitmq_document_fanout_exchange: str = Field(
+        default="documents.fanout",
+        alias="RABBITMQ_DOCUMENT_FANOUT_EXCHANGE",
+    )
+
+    # Stage 1 — parse
+    rabbitmq_parse_queue: str = Field(default="documents.parse.queue", alias="RABBITMQ_PARSE_QUEUE")
+    rabbitmq_parse_dlq: str = Field(default="documents.parse.dlq", alias="RABBITMQ_PARSE_DLQ")
+
+    # Stage 2 — chunk
+    rabbitmq_chunk_queue: str = Field(default="documents.chunk.queue", alias="RABBITMQ_CHUNK_QUEUE")
+    rabbitmq_chunk_dlq: str = Field(default="documents.chunk.dlq", alias="RABBITMQ_CHUNK_DLQ")
+
+    # Stage 3 — embed
+    rabbitmq_embed_queue: str = Field(default="documents.embed.queue", alias="RABBITMQ_EMBED_QUEUE")
+    rabbitmq_embed_dlq: str = Field(default="documents.embed.dlq", alias="RABBITMQ_EMBED_DLQ")
+
+    # Stage 4 — store
+    rabbitmq_store_queue: str = Field(default="documents.store.queue", alias="RABBITMQ_STORE_QUEUE")
+    rabbitmq_store_dlq: str = Field(default="documents.store.dlq", alias="RABBITMQ_STORE_DLQ")
+
+    # Chunker settings
+    chunk_window_tokens: int = Field(default=512, alias="CHUNK_WINDOW_TOKENS")
+    chunk_overlap_tokens: int = Field(default=50, alias="CHUNK_OVERLAP_TOKENS")
+    chunk_encoding: str = Field(default="cl100k_base", alias="CHUNK_ENCODING")
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1,12 +1,23 @@
 import json
+import math
+from datetime import timedelta
 from uuid import uuid4
-
-from fastapi import UploadFile
 
 from app.modules.documents.repositories.document_event_repository import IDocumentEventRepository
 from app.modules.documents.repositories.document_storage_repository import IDocumentStorageRepository
-from app.modules.documents.schemas import DocumentUploadResponse, DocumentUploadedEvent
+from app.modules.documents.schemas import (
+    ChunkInfo,
+    ChunkUploadUrl,
+    DocumentUploadedEvent,
+    UploadCompleteRequest,
+    UploadCompleteResponse,
+    UploadInitiateRequest,
+    UploadInitiateResponse,
+)
+from app.modules.pipeline.repositories.document_status_repository import IDocumentStatusRepository
 from app.shared.exceptions import UpstreamServiceError
+
+_PRESIGNED_URL_EXPIRY = timedelta(hours=1)
 
 
 class DocumentService:
@@ -17,58 +28,83 @@ class DocumentService:
         default_chunk_size_bytes: int,
         storage: IDocumentStorageRepository,
         event_publisher: IDocumentEventRepository,
+        document_status_repository: IDocumentStatusRepository | None = None,
     ) -> None:
         self._bucket_name = bucket_name
         self._default_chunk_size_bytes = default_chunk_size_bytes
         self._storage = storage
         self._event_publisher = event_publisher
+        self._status_repo = document_status_repository
 
     @property
     def default_chunk_size_bytes(self) -> int:
         return self._default_chunk_size_bytes
 
-    def upload_chunked_document(
+    def initiate_upload(
         self,
         *,
-        file: UploadFile,
+        request: UploadInitiateRequest,
         user_id: str | None,
-        chunk_size_bytes: int | None = None,
-    ) -> DocumentUploadResponse:
-        chunk_size = chunk_size_bytes or self._default_chunk_size_bytes
-        if chunk_size <= 0:
-            raise ValueError("chunk_size_bytes must be greater than zero")
+    ) -> UploadInitiateResponse:
+        """
+        Phase 1: Generate presigned PUT URLs for each chunk.
 
+        The client uploads chunks directly to MinIO using these URLs,
+        bypassing the backend entirely. Call complete_upload when done.
+        """
+        chunk_size = request.chunk_size_bytes or self._default_chunk_size_bytes
         upload_id = str(uuid4())
+        object_prefix = f"documents/{upload_id}"
+
+        chunk_count = math.ceil(request.file_size_bytes / chunk_size)
+
+        chunks = []
+        for i in range(chunk_count):
+            object_key = f"{object_prefix}/chunks/{i:06d}"
+            url = self._storage.presigned_put_url(
+                object_key=object_key,
+                expires=_PRESIGNED_URL_EXPIRY,
+            )
+            chunks.append(ChunkUploadUrl(chunk_index=i, object_key=object_key, presigned_url=url))
+
+        return UploadInitiateResponse(
+            upload_id=upload_id,
+            bucket=self._bucket_name,
+            object_prefix=object_prefix,
+            chunk_size_bytes=chunk_size,
+            chunk_count=chunk_count,
+            chunks=chunks,
+        )
+
+    def complete_upload(
+        self,
+        *,
+        upload_id: str,
+        request: UploadCompleteRequest,
+        user_id: str | None,
+    ) -> UploadCompleteResponse:
+        """
+        Phase 2: Client has uploaded all chunks directly to MinIO.
+
+        Write the manifest, create a Postgres document record (status=uploaded),
+        and publish the processing event to the fanout exchange.
+        """
         object_prefix = f"documents/{upload_id}"
         manifest_key = f"{object_prefix}/manifest.json"
 
-        file.file.seek(0)
-        chunk_keys: list[str] = []
-        total_size = 0
-        chunk_index = 0
-
-        while True:
-            chunk = file.file.read(chunk_size)
-            if not chunk:
-                break
-
-            total_size += len(chunk)
-            chunk_key = f"{object_prefix}/chunks/{chunk_index:06d}"
-            chunk_index += 1
-            chunk_keys.append(chunk_key)
-
-            self._storage.upload_bytes(
-                object_key=chunk_key,
-                payload=chunk,
-                content_type="application/octet-stream",
-            )
+        chunks_by_index: dict[int, ChunkInfo] = {c.chunk_index: c for c in request.chunks}
+        chunk_count = len(chunks_by_index)
+        total_size_bytes = sum(c.size_bytes for c in request.chunks)
+        chunk_keys = [
+            f"{object_prefix}/chunks/{i:06d}" for i in sorted(chunks_by_index)
+        ]
 
         manifest = {
             "upload_id": upload_id,
-            "file_name": file.filename or "uploaded-document",
-            "content_type": file.content_type,
-            "chunk_count": len(chunk_keys),
-            "total_size_bytes": total_size,
+            "file_name": request.file_name,
+            "content_type": request.content_type,
+            "chunk_count": chunk_count,
+            "total_size_bytes": total_size_bytes,
             "chunk_keys": chunk_keys,
         }
         self._storage.upload_bytes(
@@ -77,19 +113,35 @@ class DocumentService:
             content_type="application/json",
         )
 
+        document_id = str(uuid4())
+
+        # Create Postgres document record (status = uploaded)
+        if self._status_repo is not None:
+            self._status_repo.create_document(
+                document_id=document_id,
+                upload_id=upload_id,
+                user_id=user_id,
+                file_name=request.file_name,
+                content_type=request.content_type,
+                bucket=self._bucket_name,
+                object_prefix=object_prefix,
+                manifest_key=manifest_key,
+                upload_chunk_count=chunk_count,
+                total_size_bytes=total_size_bytes,
+            )
+
         event = DocumentUploadedEvent(
             event_id=str(uuid4()),
+            document_id=document_id,
             upload_id=upload_id,
             user_id=user_id,
-            file_name=file.filename or "uploaded-document",
-            content_type=file.content_type,
+            file_name=request.file_name,
+            content_type=request.content_type,
             bucket=self._bucket_name,
             object_prefix=object_prefix,
             manifest_key=manifest_key,
-            chunk_keys=chunk_keys,
-            chunk_size_bytes=chunk_size,
-            chunk_count=len(chunk_keys),
-            total_size_bytes=total_size,
+            chunk_count=chunk_count,
+            total_size_bytes=total_size_bytes,
         )
 
         try:
@@ -97,14 +149,8 @@ class DocumentService:
         except Exception as exc:  # pragma: no cover - defensive around broker libs
             raise UpstreamServiceError("Failed to publish document upload event") from exc
 
-        return DocumentUploadResponse(
+        return UploadCompleteResponse(
             upload_id=upload_id,
-            bucket=self._bucket_name,
-            object_prefix=object_prefix,
-            manifest_key=manifest_key,
-            chunk_size_bytes=chunk_size,
-            chunk_count=len(chunk_keys),
-            total_size_bytes=total_size,
             event_id=event.event_id,
             event_published=True,
         )
