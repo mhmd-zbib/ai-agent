@@ -65,6 +65,14 @@ class Settings(BaseSettings):
         alias="POSTGRES_POOL_TIMEOUT_SECONDS",
     )
 
+    # Vector backend — "qdrant" (self-hosted) or "pinecone" (cloud SaaS)
+    vector_backend: str = Field(default="qdrant", alias="VECTOR_BACKEND")
+
+    # Qdrant (self-hosted, used when vector_backend=qdrant)
+    qdrant_host: str = Field(default="localhost", alias="QDRANT_HOST")
+    qdrant_port: int = Field(default=6333, alias="QDRANT_PORT")
+    qdrant_collection: str = Field(default="agent-documents", alias="QDRANT_COLLECTION")
+
     pinecone_api_key: str | None = Field(default=None, alias="PINECONE_API_KEY")
     pinecone_environment: str = Field(
         default="gcp-starter",

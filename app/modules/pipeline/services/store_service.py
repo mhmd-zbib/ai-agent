@@ -24,7 +24,7 @@ Namespace = user_id
     tenant isolation without a metadata filter on every query.
 """
 
-from app.infrastructure.vector.pinecone import PineconeVectorClient, VectorRecord
+from app.infrastructure.vector.base import IVectorClient, VectorRecord
 from app.modules.pipeline.repositories.document_status_repository import (
     DocumentStatus,
     IDocumentStatusRepository,
@@ -74,10 +74,10 @@ class StoreService:
     def __init__(
         self,
         *,
-        pinecone_client: PineconeVectorClient,
+        vector_client: IVectorClient,
         status_repository: IDocumentStatusRepository,
     ) -> None:
-        self._pinecone = pinecone_client
+        self._vector_client = vector_client
         self._status_repo = status_repository
 
     def process(self, event: EmbedEvent) -> StoredEvent:
@@ -112,7 +112,7 @@ class StoreService:
                 metadata=_build_metadata(event),
             )
 
-            self._pinecone.upsert_records([record], namespace=namespace)
+            self._vector_client.upsert_records([record], namespace=namespace)
 
             logger.info(
                 "Chunk stored in Pinecone",

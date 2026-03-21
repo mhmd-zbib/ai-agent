@@ -1,7 +1,7 @@
 import time
 from threading import Lock
-from typing import TypedDict
 
+from app.infrastructure.vector.base import VectorRecord  # noqa: F401 — re-exported
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
@@ -9,14 +9,6 @@ logger = get_logger(__name__)
 # Pinecone metadata size limit is 40 KB per vector.
 # 512-token chunks are ~2 000–4 000 chars — well within this.
 _METADATA_TEXT_LIMIT = 10_000  # characters; safety cap
-
-
-class VectorRecord(TypedDict):
-    """Typed dict matching Pinecone's upsert vector format."""
-
-    id: str
-    values: list[float]
-    metadata: dict
 
 
 class PineconeVectorClient:

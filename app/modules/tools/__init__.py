@@ -21,13 +21,20 @@ from app.modules.tools.registry import ToolRegistry
 from app.shared.config import get_settings
 
 
-def get_tool_registry() -> ToolRegistry:
+def get_tool_registry(
+    vector_client=None,
+    embedding_client=None,
+) -> ToolRegistry:
     """
     Create and populate the tool registry.
 
     Production tools are always registered. Demo/showcase tools are
     conditionally registered based on the ENABLE_DEMO_TOOLS environment
     variable setting.
+
+    Args:
+        vector_client: Optional IVectorClient for document search (RAG).
+        embedding_client: Optional embedding client for query vectorisation.
 
     Returns:
         ToolRegistry: Configured registry with all enabled tools
@@ -39,7 +46,7 @@ def get_tool_registry() -> ToolRegistry:
     registry.register(DateTimeNowTool())
     registry.register(WebSearchTool())
     registry.register(WeatherTool())
-    registry.register(DocumentLookupTool())
+    registry.register(DocumentLookupTool(vector_client=vector_client, embedding_client=embedding_client))
 
     # Conditionally register demo tools for development/testing
     settings = get_settings()

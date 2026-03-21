@@ -80,8 +80,33 @@ def create_chat_service(
 
     llm_client = _create_llm_client(settings)
 
+    # Initialize RAG clients for document search tool
+    from app.infrastructure.embedding.openai import OpenAIEmbeddingClient
+    from app.workers.store_consumer import _create_vector_client
+
+    _embed_api_key = settings.embedding_api_key or settings.openai_api_key
+    _embed_base_url = settings.embedding_base_url
+    _rag_embedding_client = None
+    _rag_vector_client = None
+
+    if _embed_api_key and (_embed_api_key != "not-needed" or _embed_base_url):
+        _rag_embedding_client = OpenAIEmbeddingClient(
+            api_key=_embed_api_key,
+            model=settings.embedding_model,
+            base_url=_embed_base_url,
+            dimensions=settings.embedding_dimension,
+            max_retries=settings.embedding_max_retries,
+        )
+        try:
+            _rag_vector_client = _create_vector_client(settings)
+        except RuntimeError as exc:
+            logger.warning("RAG vector client unavailable", extra={"reason": str(exc)})
+
     # Initialize tool system
-    tool_registry = get_tool_registry()
+    tool_registry = get_tool_registry(
+        vector_client=_rag_vector_client,
+        embedding_client=_rag_embedding_client,
+    )
     logger.info(
         "Tool registry initialized",
         extra={
@@ -152,7 +177,6 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
     with a warning so the rest of the pipeline still starts.
     """
     from app.infrastructure.embedding.openai import OpenAIEmbeddingClient
-    from app.infrastructure.vector.pinecone import PineconeVectorClient
     from app.modules.documents.schemas.events import DocumentUploadedEvent
     from app.modules.pipeline.repositories.document_status_repository import DocumentStatusRepository
     from app.modules.pipeline.schemas.events import ChunkEvent, EmbedEvent, ParsedEvent
@@ -206,11 +230,14 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
         ("chunk", settings.rabbitmq_chunk_queue, settings.rabbitmq_chunk_dlq, _chunk_handler),
     ]
 
-    # Embed worker — needs a real API key.
-    # Prefers EMBEDDING_API_KEY; falls back to OPENAI_API_KEY.
-    # Skips if neither is set or both are the placeholder "not-needed".
-    _embed_api_key = settings.embedding_api_key or settings.openai_api_key
-    if _embed_api_key and _embed_api_key != "not-needed":
+    # Embed worker — needs a real API key OR a custom base_url (Ollama).
+    # "not-needed" is valid when EMBEDDING_BASE_URL is set (e.g. Ollama).
+    _embed_api_key  = settings.embedding_api_key or settings.openai_api_key
+    _embed_base_url = settings.embedding_base_url
+    _embed_ready    = bool(_embed_api_key) and (
+        _embed_api_key != "not-needed" or bool(_embed_base_url)
+    )
+    if _embed_ready:
         _embedding_client = OpenAIEmbeddingClient(
             api_key=_embed_api_key,
             model=settings.embedding_model,
@@ -238,17 +265,13 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
             "Embed worker not started: set EMBEDDING_API_KEY (or OPENAI_API_KEY) to enable embeddings"
         )
 
-    # Store worker — requires Pinecone
-    if settings.pinecone_api_key:
-        pinecone_client = PineconeVectorClient(
-            api_key=settings.pinecone_api_key,
-            index_name=settings.pinecone_index_name,
-            dimension=settings.embedding_dimension,
-            cloud=settings.pinecone_cloud,
-            region=settings.pinecone_region,
-        )
+    # Store worker — backend selected by VECTOR_BACKEND env var
+    from app.workers.store_consumer import _create_vector_client
+
+    try:
+        _vector_client = _create_vector_client(settings)
         store_service = StoreService(
-            pinecone_client=pinecone_client,
+            vector_client=_vector_client,
             status_repository=status_repo,
         )
 
@@ -257,8 +280,8 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
             store_service.process(event)
 
         workers.append(("store", settings.rabbitmq_store_queue, settings.rabbitmq_store_dlq, _store_handler))
-    else:
-        logger.warning("Store worker not started: set PINECONE_API_KEY to enable vector storage")
+    except RuntimeError as exc:
+        logger.warning("Store worker not started", extra={"reason": str(exc)})
 
     # --- Spawn a daemon thread per worker ---
     for name, queue, dlq, handler in workers:

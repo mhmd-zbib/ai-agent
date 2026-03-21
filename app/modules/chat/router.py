@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, status
 
 from app.modules.chat.schemas import ChatRequest, ChatResponse, SessionCreateResponse, SessionResetResponse
 from app.modules.chat.services.chat_service import ChatService
+from app.modules.users.schemas import UserOut
 from app.shared.deps import get_chat_service, get_current_user
 
 router = APIRouter(
@@ -27,9 +28,10 @@ async def create_session(
 )
 async def chat(
     payload: ChatRequest,
+    current_user: UserOut = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ) -> ChatResponse:
-    return chat_service.reply(payload)
+    return chat_service.reply(payload, user_id=current_user.id)
 
 
 @router.delete("/sessions/{session_id}", response_model=SessionResetResponse)

@@ -66,10 +66,14 @@ class ChatService:
         """Return response mode; kept isolated for future strategy injection."""
         return "chat"
 
-    def _execute_tool_action(self, session_id: str, ai_response: AIResponse) -> AIResponse:
+    def _execute_tool_action(self, session_id: str, ai_response: AIResponse, user_id: str = "") -> AIResponse:
         """Execute tool action and update response content with user-safe output."""
         if ai_response.tool_action is None:
             return ai_response
+
+        # Inject user_id so tools that need tenant-scoped data (e.g. document_lookup) can filter correctly.
+        if user_id:
+            ai_response.tool_action.params["user_id"] = user_id
 
         logger.info(
             "Tool action detected - executing",
@@ -201,7 +205,7 @@ class ChatService:
         ai_response.tool_action = None
         return ai_response
 
-    def reply(self, payload: ChatRequest) -> ChatResponse:
+    def reply(self, payload: ChatRequest, user_id: str = "") -> ChatResponse:
         session_id = payload.session_id
         state = self._memory_service.get_session_state(session_id)
 
@@ -239,7 +243,7 @@ class ChatService:
         )
 
         had_tool_action = ai_response.tool_action is not None
-        ai_response = self._execute_tool_action(session_id=session_id, ai_response=ai_response)
+        ai_response = self._execute_tool_action(session_id=session_id, ai_response=ai_response, user_id=user_id)
 
         if had_tool_action:
             try:
