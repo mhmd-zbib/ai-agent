@@ -3,7 +3,8 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
 from redis import Redis
 from sqlalchemy.engine import Engine
 
@@ -11,6 +12,14 @@ from app.infrastructure.database.postgres import create_postgres_engine
 from app.infrastructure.database.redis import create_redis_client
 from app.infrastructure.messaging.rabbitmq import RabbitMQConsumer, RabbitMQPublisher, publish_to_queue, publish_batch_to_queue, setup_pipeline_topology
 from app.infrastructure.storage.minio import MinioStorageClient
+from app.modules.agent.agents.action_agent import ActionAgent
+from app.modules.agent.agents.critique_agent import CritiqueAgent
+from app.modules.agent.agents.memory_agent import MemoryAgent
+from app.modules.agent.agents.reasoning_agent import ReasoningAgent
+from app.modules.agent.agents.retrieval_agent import RetrievalAgent
+from app.modules.agent.services.orchestrator_service import OrchestratorService
+from app.modules.rag.services.rag_service import RAGService
+from app.modules.rag.services.reranker import PassthroughReranker
 from app.modules.chat.router import router as chat_router
 from app.modules.chat.services.chat_service import ChatService
 from app.modules.documents.repositories.document_event_repository import RabbitMQDocumentEventRepository
@@ -28,6 +37,12 @@ from app.modules.users.router import router as users_router
 from app.modules.users.services.auth_service import AuthService
 from app.modules.users.services.user_service import UserService
 from app.shared.config import Settings, get_settings
+from app.shared.constants import (
+    CRITIQUE_AGENT_SYSTEM_PROMPT,
+    MEMORY_AGENT_SYSTEM_PROMPT,
+    ORCHESTRATOR_SYSTEM_PROMPT,
+    REASONING_AGENT_SYSTEM_PROMPT,
+)
 from app.shared.exceptions import ConfigurationError, register_exception_handlers
 from app.infrastructure.llm.openai import OpenAIClient
 from app.shared.llm.base import BaseLLM
@@ -61,6 +76,43 @@ def _create_llm_client(settings: Settings) -> BaseLLM:
     )
 
 
+def _create_agent_llm(settings: Settings, system_prompt: str) -> BaseLLM:
+    return OpenAIClient(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        model=settings.openai_model,
+        system_prompt=system_prompt,
+    )
+
+
+def create_orchestrator_service(
+    settings: Settings,
+    tool_registry: Any,
+    vector_client: Any,
+    embedding_client: Any,
+) -> OrchestratorService:
+    orchestrator_llm = _create_agent_llm(settings, ORCHESTRATOR_SYSTEM_PROMPT)
+    reasoning_llm = _create_agent_llm(settings, REASONING_AGENT_SYSTEM_PROMPT)
+    critique_llm = _create_agent_llm(settings, CRITIQUE_AGENT_SYSTEM_PROMPT)
+    memory_llm = _create_agent_llm(settings, MEMORY_AGENT_SYSTEM_PROMPT)
+
+    rag_service = RAGService(
+        vector_client=vector_client,
+        embedding_client=embedding_client,
+        reranker=PassthroughReranker(),
+    )
+    retrieval_agent = RetrievalAgent(rag_service=rag_service)
+
+    return OrchestratorService(
+        llm=orchestrator_llm,
+        retrieval_agent=retrieval_agent,
+        reasoning_agent=ReasoningAgent(llm=reasoning_llm),
+        critique_agent=CritiqueAgent(llm=critique_llm),
+        memory_agent=MemoryAgent(llm=memory_llm),
+        action_agent=ActionAgent(tool_registry=tool_registry),
+    )
+
+
 def create_chat_service(
     settings: Settings,
     postgres_engine: Engine,
@@ -78,9 +130,7 @@ def create_chat_service(
         long_term_repository=long_term_repository,
     )
 
-    llm_client = _create_llm_client(settings)
-
-    # Initialize RAG clients for document search tool
+    # Initialize RAG clients for document search tool and retrieval agent
     from app.infrastructure.embedding.openai import OpenAIEmbeddingClient
     from app.workers.store_consumer import _create_vector_client
 
@@ -115,25 +165,16 @@ def create_chat_service(
         }
     )
 
-    # Wire RAG service for on-demand retrieval (use_rag=True in ChatRequest)
-    rag_service = None
-    if _rag_vector_client and _rag_embedding_client:
-        from app.modules.rag.repositories.vector_repository import QdrantVectorRepository
-        from app.modules.rag.services.rag_service import RAGService
-        from app.modules.rag.services.reranker import PassthroughReranker
-
-        rag_service = RAGService(
-            vector_repository=QdrantVectorRepository(_rag_vector_client, _rag_embedding_client),
-            reranker=PassthroughReranker(),
-            enable_reranking=False,
-        )
-        logger.info("RAG service initialized")
+    orchestrator_service = create_orchestrator_service(
+        settings=settings,
+        tool_registry=tool_registry,
+        vector_client=_rag_vector_client,
+        embedding_client=_rag_embedding_client,
+    )
 
     return ChatService(
-        llm=llm_client,
+        orchestrator_service=orchestrator_service,
         memory_service=memory_service,
-        tool_registry=tool_registry,
-        rag_service=rag_service,
     )
 
 
@@ -176,7 +217,7 @@ def create_document_service(settings: Settings, postgres_engine: Engine) -> Docu
         default_chunk_size_bytes=settings.document_chunk_size_bytes,
         storage=storage_repo,
         event_publisher=event_repo,
-        document_status_repository=status_repo,
+        document_record_repository=status_repo,
     )
 
 
@@ -410,6 +451,16 @@ def create_app() -> FastAPI:
 
     app.state.settings = settings
 
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next) -> Response:
+        request_id = request.headers.get("x-request-id")
+        if request_id:
+            request.state.request_id = request_id
+        response = await call_next(request)
+        if request_id:
+            response.headers["x-request-id"] = request_id
+        return response
+
     app.include_router(chat_router)
     app.include_router(users_router)
     app.include_router(documents_router)
@@ -432,10 +483,12 @@ def create_app() -> FastAPI:
 app = create_app()
 
 __all__ = [
+    "_create_agent_llm",
     "_create_llm_client",
     "app",
     "create_app",
     "create_chat_service",
     "create_document_service",
+    "create_orchestrator_service",
     "create_user_service",
 ]

@@ -8,7 +8,7 @@ Postgres, and returns a list of ChunkEvents — one per text chunk.
 
 import json
 
-from app.infrastructure.storage.minio import MinioStorageClient
+from app.shared.protocols import IFileStorage
 from app.modules.pipeline.chunkers.sliding_window_chunker import SlidingWindowChunker
 from app.modules.pipeline.repositories.document_status_repository import (
     DocumentStatus,
@@ -24,7 +24,7 @@ class ChunkService:
     def __init__(
         self,
         *,
-        storage: MinioStorageClient,
+        storage: IFileStorage,
         status_repository: IDocumentStatusRepository,
         window_tokens: int = 512,
         overlap_tokens: int = 50,

@@ -4,6 +4,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.modules.users.schemas import UserOut
 from app.shared.exceptions import AuthenticationError
 
 
@@ -16,7 +17,7 @@ class FakeChatService:
         self._history.setdefault(session_id, [])
         return {"session_id": session_id}
 
-    def reply(self, payload):
+    def reply(self, payload, user_id: str = ""):
         history = self._history.setdefault(payload.session_id, [])
         history.append({"role": "user", "content": payload.message})
         reply = f"echo: {payload.message}"
@@ -46,12 +47,12 @@ class FakeUserService:
     def get_user_from_token(self, token: str):
         if token != "good-token":
             raise AuthenticationError("Invalid or expired token.")
-        return {"id": "user-1", "email": "test@example.com"}
+        return UserOut(id="user-1", email="test@example.com")
 
 
 class FakeToolActionChatService(FakeChatService):
-    def reply(self, payload):
-        response = super().reply(payload)
+    def reply(self, payload, user_id: str = ""):
+        response = super().reply(payload, user_id=user_id)
         response["tool_action"] = {"tool_id": "weather", "params": {"city": "Beirut"}}
         return response
 

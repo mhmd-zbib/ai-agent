@@ -1,88 +1,79 @@
 import logging
 
-from app.modules.rag.repositories.base_vector_repository import BaseVectorRepository
 from app.modules.rag.schemas import SearchQuery, SearchResult
 from app.modules.rag.services.base_reranker import BaseReranker
+from app.shared.protocols import IEmbeddingClient, IVectorClient
 
 logger = logging.getLogger(__name__)
 
 
 class RAGService:
     """
-    RAG (Retrieval-Augmented Generation) service.
-    
+    Retrieval-Augmented Generation service.
+
     Orchestrates the retrieval pipeline:
-    1. Vector similarity search
-    2. Reranking for relevance
-    
-    Features:
-    - Logging and observability
-    - Graceful handling of stub implementations
-    - Configurable search parameters
+    1. Embed the query
+    2. Vector similarity search
+    3. Optional reranking for relevance
     """
 
     def __init__(
         self,
-        vector_repository: BaseVectorRepository,
+        vector_client: IVectorClient | None,
+        embedding_client: IEmbeddingClient | None,
         reranker: BaseReranker,
         enable_reranking: bool = True,
     ) -> None:
-        """
-        Initialize RAG service.
-        
-        Args:
-            vector_repository: Vector search implementation
-            reranker: Reranking strategy
-            enable_reranking: Whether to apply reranking (useful for testing/fallback)
-        """
-        self._vector_repository = vector_repository
+        self._vector_client = vector_client
+        self._embedding_client = embedding_client
         self._reranker = reranker
         self._enable_reranking = enable_reranking
 
     def search(self, query: SearchQuery) -> list[SearchResult]:
         """
         Perform retrieval search with optional reranking.
-        
+
         Args:
-            query: Search query with text and parameters
-            
+            query: Search query with text, user_id, and top_k
+
         Returns:
             List of search results, reranked if enabled
-            
-        Raises:
-            NotImplementedError: If vector repository is a stub
-            RuntimeError: If search fails
         """
-        logger.info(f"Searching for query: '{query.text}' (top_k={query.top_k})")
+        if self._vector_client is None or self._embedding_client is None:
+            logger.warning("RAGService: vector or embedding client not configured; returning []")
+            return []
+
+        logger.info("RAGService: searching", extra={"query": query.text, "top_k": query.top_k})
 
         try:
-            # Step 1: Vector similarity search
-            hits = self._vector_repository.search(query)
-            logger.info(f"Vector search returned {len(hits)} results")
+            vector = self._embedding_client.embed(query.text)
+            raw_hits = self._vector_client.query(
+                vector=vector,
+                top_k=query.top_k,
+                namespace=query.user_id,
+            )
+        except Exception as exc:
+            logger.error("RAGService: vector search failed", extra={"error": str(exc)})
+            raise RuntimeError(f"Search failed for query: {query.text}") from exc
 
-            if not hits:
-                logger.warning("No results found for query")
-                return []
+        hits = [
+            SearchResult(
+                chunk_id=str(r.get("id", "")),
+                score=float(r.get("score", 0.0)),
+                text=str((r.get("metadata") or {}).get("text", "")),
+                source=str((r.get("metadata") or {}).get("source", "")),
+            )
+            for r in raw_hits
+        ]
 
-            # Step 2: Optional reranking
-            if self._enable_reranking:
-                try:
-                    reranked = self._reranker.rerank(hits)
-                    logger.info(f"Reranked {len(hits)} results")
-                    return reranked
-                except NotImplementedError as e:
-                    logger.warning(
-                        f"Reranking not implemented, returning vector search results: {e}"
-                    )
-                    return hits
-            else:
-                logger.debug("Reranking disabled, returning vector search results")
+        if not hits:
+            return []
+
+        if self._enable_reranking:
+            try:
+                return self._reranker.rerank(hits)
+            except NotImplementedError:
+                logger.debug("RAGService: reranker not implemented, returning raw results")
                 return hits
 
-        except NotImplementedError:
-            logger.error("Vector repository is a stub - cannot perform search")
-            raise
-        except Exception as e:
-            logger.error(f"Search failed: {e}", exc_info=True)
-            raise RuntimeError(f"Search failed for query: {query.text}") from e
-
+        return hits

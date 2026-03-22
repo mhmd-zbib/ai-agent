@@ -1,23 +1,30 @@
+"""
+Unit tests for ChatService delegating to OrchestratorService.
+
+Verifies that ChatService maps OrchestratorOutput to a correct ChatResponse.
+"""
+from __future__ import annotations
+
+from app.modules.agent.schemas.sub_agents import OrchestratorInput, OrchestratorOutput
+from app.modules.agent.services.orchestrator_service import OrchestratorService
 from app.modules.chat.schemas import ChatRequest
 from app.modules.chat.services.chat_service import ChatService
 from app.modules.memory.schemas import SessionState
-from app.modules.tools.base import BaseTool
-from app.modules.tools.registry import ToolRegistry
-from app.shared.schemas import AIResponse, ToolAction
-from typing import Any, Literal, Optional
 
-from app.shared.llm.base import BaseLLM
-from app.shared.schemas import AgentInput
+
+# ---------------------------------------------------------------------------
+# Fakes
+# ---------------------------------------------------------------------------
 
 
 class _FakeMemoryService:
     def __init__(self) -> None:
-        self.messages = []
+        self.messages: list[tuple[str, object]] = []
 
     def get_session_state(self, session_id: str) -> SessionState:
         return SessionState(session_id=session_id, messages=[])
 
-    def append_message(self, session_id: str, entry) -> None:
+    def append_message(self, session_id: str, entry: object) -> None:
         self.messages.append((session_id, entry))
 
     def clear_session(self, session_id: str) -> bool:
@@ -27,85 +34,96 @@ class _FakeMemoryService:
         return None
 
 
-class _FakeTool(BaseTool):
-    name = "weather"
-    description = "Fake weather"
-    parameters = {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
+class _FakeOrchestratorService:
+    """Returns a configurable OrchestratorOutput for all run() calls."""
 
-    def run(self, arguments: dict[str, object]) -> str:
-        return "Current weather in Paris, France: Clear sky. Temperature: 15.3C."
-
-
-class _FakeLLM(BaseLLM):
-    def __init__(self, responses: list[AIResponse]) -> None:
-        self._responses = responses
+    def __init__(self, answer: str = "test answer", confidence: float = 0.9) -> None:
+        self._answer = answer
+        self._confidence = confidence
         self.call_count = 0
+        self.last_input: OrchestratorInput | None = None
 
-    def generate(
-        self,
-        payload: AgentInput,
-        response_mode: Literal["chat", "tool_call"] = "chat",
-        tools: Optional[list[dict[str, Any]]] = None,
-    ) -> AIResponse:  # noqa: ARG002
-        idx = min(self.call_count, len(self._responses) - 1)
+    def run(self, input: OrchestratorInput) -> OrchestratorOutput:
         self.call_count += 1
-        return self._responses[idx]
+        self.last_input = input
+        return OrchestratorOutput(
+            answer=self._answer,
+            session_id=input.session_id,
+            agent_trace=[],
+            confidence=self._confidence,
+        )
 
 
-def test_chat_service_tool_type_returns_clean_tool_content() -> None:
-    registry = ToolRegistry()
-    registry.register(_FakeTool())
-    memory_service = _FakeMemoryService()
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
-    llm = _FakeLLM(
-        responses=[
-            AIResponse(
-                type="tool",
-                content="Calling tool: weather",
-                tool_action=ToolAction(tool_id="weather", params={"city": "Paris"}),
-            ),
-            AIResponse(
-                type="text",
-                content="The weather in Paris is clear, around 15C. Great for a walk.",
-                tool_action=None,
-            ),
-        ]
+
+def test_chat_service_returns_text_type_with_orchestrator_answer() -> None:
+    orchestrator = _FakeOrchestratorService(answer="The weather is clear.")
+    service = ChatService(
+        orchestrator_service=orchestrator,  # type: ignore[arg-type]
+        memory_service=_FakeMemoryService(),
     )
-    service = ChatService(llm=llm, memory_service=memory_service, tool_registry=registry)
 
-    response = service.reply(ChatRequest(session_id="s1", message="weather in paris"))
+    response = service.reply(ChatRequest(session_id="s1", message="weather today"))
 
-    assert llm.call_count == 2
     assert response.type == "text"
+    assert response.content == "The weather is clear."
     assert response.tool_action is None
-    assert response.content == "The weather in Paris is clear, around 15C. Great for a walk."
+    assert response.session_id == "s1"
 
 
-def test_chat_service_mixed_type_keeps_text_without_wrapper_label() -> None:
-    registry = ToolRegistry()
-    registry.register(_FakeTool())
-    memory_service = _FakeMemoryService()
-
-    llm = _FakeLLM(
-        responses=[
-            AIResponse(
-                type="mixed",
-                content="Here is the weather update:",
-                tool_action=ToolAction(tool_id="weather", params={"city": "Paris"}),
-            ),
-            AIResponse(
-                type="text",
-                content="It's cool and clear in Paris today, so it is generally fine for a short trip.",
-                tool_action=None,
-            ),
-        ]
+def test_chat_service_tool_action_always_none() -> None:
+    """ChatService never exposes tool_action — the orchestrator handles tools internally."""
+    orchestrator = _FakeOrchestratorService(answer="Done.")
+    service = ChatService(
+        orchestrator_service=orchestrator,  # type: ignore[arg-type]
+        memory_service=_FakeMemoryService(),
     )
-    service = ChatService(llm=llm, memory_service=memory_service, tool_registry=registry)
 
-    response = service.reply(ChatRequest(session_id="s1", message="weather in paris"))
+    response = service.reply(ChatRequest(session_id="s1", message="do something"))
 
-    assert llm.call_count == 2
-    assert response.type == "text"
     assert response.tool_action is None
-    assert "Tool Result:" not in response.content
-    assert "trip" in response.content.lower()
+
+
+def test_chat_service_passes_use_rag_flag() -> None:
+    orchestrator = _FakeOrchestratorService(answer="Context-based answer.")
+    service = ChatService(
+        orchestrator_service=orchestrator,  # type: ignore[arg-type]
+        memory_service=_FakeMemoryService(),
+    )
+
+    service.reply(ChatRequest(session_id="s1", message="document question", use_rag=True))
+
+    assert orchestrator.last_input is not None
+    assert orchestrator.last_input.use_retrieval is True
+
+
+def test_chat_service_persists_turn() -> None:
+    memory = _FakeMemoryService()
+    orchestrator = _FakeOrchestratorService(answer="AI reply.")
+    service = ChatService(
+        orchestrator_service=orchestrator,  # type: ignore[arg-type]
+        memory_service=memory,
+    )
+
+    service.reply(ChatRequest(session_id="s1", message="user msg"))
+
+    # get_session_state + 2 appends (user + assistant)
+    assert len(memory.messages) == 2
+    roles = [entry.role for _, entry in memory.messages]  # type: ignore[union-attr]
+    assert roles == ["user", "assistant"]
+
+
+def test_chat_service_metadata_carries_confidence() -> None:
+    orchestrator = _FakeOrchestratorService(answer="precise", confidence=0.77)
+    service = ChatService(
+        orchestrator_service=orchestrator,  # type: ignore[arg-type]
+        memory_service=_FakeMemoryService(),
+    )
+
+    response = service.reply(ChatRequest(session_id="s1", message="q"))
+
+    assert response.metadata is not None
+    assert response.metadata.confidence == 0.77

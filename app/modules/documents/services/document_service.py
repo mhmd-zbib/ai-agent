@@ -14,7 +14,7 @@ from app.modules.documents.schemas import (
     UploadInitiateRequest,
     UploadInitiateResponse,
 )
-from app.modules.pipeline.repositories.document_status_repository import IDocumentStatusRepository
+from app.modules.documents.repositories.document_record_repository import IDocumentRecordRepository
 from app.shared.exceptions import UpstreamServiceError
 
 _PRESIGNED_URL_EXPIRY = timedelta(hours=1)
@@ -28,13 +28,13 @@ class DocumentService:
         default_chunk_size_bytes: int,
         storage: IDocumentStorageRepository,
         event_publisher: IDocumentEventRepository,
-        document_status_repository: IDocumentStatusRepository | None = None,
+        document_record_repository: IDocumentRecordRepository | None = None,
     ) -> None:
         self._bucket_name = bucket_name
         self._default_chunk_size_bytes = default_chunk_size_bytes
         self._storage = storage
         self._event_publisher = event_publisher
-        self._status_repo = document_status_repository
+        self._status_repo = document_record_repository
 
     @property
     def default_chunk_size_bytes(self) -> int:

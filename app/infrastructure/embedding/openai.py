@@ -98,3 +98,36 @@ class OpenAIEmbeddingClient:
             )
 
         return vector
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Normalise *texts*, call the embedding API in one request, return vectors."""
+        normalised = [_normalize(t) for t in texts]
+
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "input": normalised,
+            "encoding_format": "float",
+        }
+        if self._dimensions is not None:
+            kwargs["dimensions"] = self._dimensions
+
+        try:
+            response = self._client.embeddings.create(**kwargs)
+        except RateLimitError:
+            logger.error(
+                "Embedding API rate-limited — SDK will retry automatically",
+                extra={"model": self._model},
+            )
+            raise
+        except APIStatusError as exc:
+            logger.error(
+                "Embedding API error",
+                extra={
+                    "model": self._model,
+                    "http_status": exc.status_code,
+                    "error": exc.message,
+                },
+            )
+            raise
+
+        return [item.embedding for item in response.data]

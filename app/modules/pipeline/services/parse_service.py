@@ -8,7 +8,7 @@ returns a ParsedEvent ready to publish to chunk.queue.
 
 import json
 
-from app.infrastructure.storage.minio import MinioStorageClient
+from app.shared.protocols import IFileStorage
 from app.modules.documents.schemas.events import DocumentUploadedEvent
 from app.modules.pipeline.parsers import get_parser
 from app.modules.pipeline.repositories.document_status_repository import (
@@ -25,7 +25,7 @@ class ParseService:
     def __init__(
         self,
         *,
-        storage: MinioStorageClient,
+        storage: IFileStorage,
         status_repository: IDocumentStatusRepository,
     ) -> None:
         self._storage = storage

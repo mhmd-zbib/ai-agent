@@ -24,7 +24,8 @@ Namespace = user_id
     tenant isolation without a metadata filter on every query.
 """
 
-from app.infrastructure.vector.base import IVectorClient, VectorRecord
+from app.shared.protocols import IVectorClient
+from app.shared.protocols import VectorRecord
 from app.modules.pipeline.repositories.document_status_repository import (
     DocumentStatus,
     IDocumentStatusRepository,

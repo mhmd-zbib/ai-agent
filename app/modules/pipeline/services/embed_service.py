@@ -6,8 +6,7 @@ via config without touching this service. The concrete adapter (OpenAI, Ollama,
 Azure, etc.) is injected by the consumer / composition root.
 """
 
-from typing import Protocol
-
+from app.shared.protocols import IEmbeddingClient
 from app.modules.pipeline.repositories.document_status_repository import (
     DocumentStatus,
     IDocumentStatusRepository,
@@ -16,12 +15,6 @@ from app.modules.pipeline.schemas.events import ChunkEvent, EmbedEvent
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-class IEmbeddingClient(Protocol):
-    """Port: any object that can embed a string into a dense float vector."""
-
-    def embed(self, text: str) -> list[float]: ...
 
 
 class EmbedService:

@@ -11,4 +11,4 @@ class SearchResult(BaseModel):
     chunk_id: str
     score: float
     text: str
-
+    source: str = ""
