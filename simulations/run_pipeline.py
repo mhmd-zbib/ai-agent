@@ -25,9 +25,9 @@ EMAIL = "zbib@gmail.com"
 PASSWORD = "zbib123321"
 UNIVERSITY = "LIU"       # LIU | AUB | LAU
 MAJOR = "COMPUTER_SCIENCE"
-COURSE_CODE = "PHAR205"
+COURSE_CODE = "POTTER"
 
-FILE = Path(__file__).parent / "phar.pdf"  # swap to any .pdf / .docx / .txt
+FILE = Path(__file__).parent / "potter.pdf"  # swap to any .pdf / .docx / .txt
 
 # ---------------------------------------------------------------------------
 # HTTP
