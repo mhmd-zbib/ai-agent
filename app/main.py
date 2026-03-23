@@ -10,10 +10,17 @@ from sqlalchemy.engine import Engine
 
 from app.infrastructure.database.postgres import create_postgres_engine
 from app.infrastructure.database.redis import create_redis_client
-from app.infrastructure.messaging.rabbitmq import RabbitMQConsumer, RabbitMQPublisher, publish_to_queue, publish_batch_to_queue, setup_pipeline_topology
+from app.infrastructure.messaging.rabbitmq import (
+    RabbitMQConsumer,
+    RabbitMQPublisher,
+    publish_to_queue,
+    publish_batch_to_queue,
+    setup_pipeline_topology,
+)
 from app.infrastructure.storage.minio import MinioStorageClient
 from app.modules.agent.agents.action_agent import ActionAgent
 from app.modules.agent.agents.critique_agent import CritiqueAgent
+from app.modules.agent.agents.formula_verification_agent import FormulaVerificationAgent
 from app.modules.agent.agents.memory_agent import MemoryAgent
 from app.modules.agent.agents.reasoning_agent import ReasoningAgent
 from app.modules.agent.agents.retrieval_agent import RetrievalAgent
@@ -22,11 +29,17 @@ from app.modules.rag.services.rag_service import RAGService
 from app.modules.rag.services.reranker import PassthroughReranker
 from app.modules.chat.router import router as chat_router
 from app.modules.chat.services.chat_service import ChatService
-from app.modules.documents.repositories.document_event_repository import RabbitMQDocumentEventRepository
-from app.modules.documents.repositories.document_storage_repository import MinioDocumentStorageRepository
+from app.modules.documents.repositories.document_event_repository import (
+    RabbitMQDocumentEventRepository,
+)
+from app.modules.documents.repositories.document_storage_repository import (
+    MinioDocumentStorageRepository,
+)
 from app.modules.documents.router import router as documents_router
 from app.modules.documents.services import DocumentService
-from app.modules.pipeline.repositories.document_status_repository import DocumentStatusRepository
+from app.modules.pipeline.repositories.document_status_repository import (
+    DocumentStatusRepository,
+)
 from app.modules.memory.repositories.long_term_repository import LongTermRepository
 from app.modules.memory.repositories.short_term_repository import ShortTermRepository
 from app.modules.memory.services.memory_service import MemoryService
@@ -39,9 +52,11 @@ from app.modules.users.services.user_service import UserService
 from app.shared.config import Settings, get_settings
 from app.shared.constants import (
     CRITIQUE_AGENT_SYSTEM_PROMPT,
+    FORMULA_VERIFICATION_SYSTEM_PROMPT,
     MEMORY_AGENT_SYSTEM_PROMPT,
     ORCHESTRATOR_SYSTEM_PROMPT,
     REASONING_AGENT_SYSTEM_PROMPT,
+    SYNTHESIS_SYSTEM_PROMPT,
 )
 from app.shared.exceptions import ConfigurationError, register_exception_handlers
 from app.infrastructure.llm.openai import OpenAIClient
@@ -92,9 +107,11 @@ def create_orchestrator_service(
     embedding_client: Any,
 ) -> OrchestratorService:
     orchestrator_llm = _create_agent_llm(settings, ORCHESTRATOR_SYSTEM_PROMPT)
+    synthesis_llm = _create_agent_llm(settings, SYNTHESIS_SYSTEM_PROMPT)
     reasoning_llm = _create_agent_llm(settings, REASONING_AGENT_SYSTEM_PROMPT)
     critique_llm = _create_agent_llm(settings, CRITIQUE_AGENT_SYSTEM_PROMPT)
     memory_llm = _create_agent_llm(settings, MEMORY_AGENT_SYSTEM_PROMPT)
+    formula_verification_llm = _create_agent_llm(settings, FORMULA_VERIFICATION_SYSTEM_PROMPT)
 
     rag_service = RAGService(
         vector_client=vector_client,
@@ -105,11 +122,13 @@ def create_orchestrator_service(
 
     return OrchestratorService(
         llm=orchestrator_llm,
+        synthesis_llm=synthesis_llm,
         retrieval_agent=retrieval_agent,
         reasoning_agent=ReasoningAgent(llm=reasoning_llm),
         critique_agent=CritiqueAgent(llm=critique_llm),
         memory_agent=MemoryAgent(llm=memory_llm),
         action_agent=ActionAgent(tool_registry=tool_registry),
+        formula_verification_agent=FormulaVerificationAgent(llm=formula_verification_llm),
     )
 
 
@@ -162,7 +181,7 @@ def create_chat_service(
         extra={
             "tool_count": len(tool_registry.list_tools()),
             "tools": tool_registry.list_tools(),
-        }
+        },
     )
 
     orchestrator_service = create_orchestrator_service(
@@ -190,7 +209,9 @@ def create_user_service(settings: Settings, postgres_engine: Engine) -> UserServ
     return UserService(repository=user_repository, auth_service=auth_service)
 
 
-def create_document_service(settings: Settings, postgres_engine: Engine) -> DocumentService:
+def create_document_service(
+    settings: Settings, postgres_engine: Engine
+) -> DocumentService:
     storage_repo = MinioDocumentStorageRepository(
         MinioStorageClient(
             endpoint=settings.minio_endpoint,
@@ -234,7 +255,9 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
     """
     from app.infrastructure.embedding.openai import OpenAIEmbeddingClient
     from app.modules.documents.schemas.events import DocumentUploadedEvent
-    from app.modules.pipeline.repositories.document_status_repository import DocumentStatusRepository
+    from app.modules.pipeline.repositories.document_status_repository import (
+        DocumentStatusRepository,
+    )
     from app.modules.pipeline.schemas.events import ChunkEvent, EmbedEvent, ParsedEvent
     from app.modules.pipeline.services.chunk_service import ChunkService
     from app.modules.pipeline.services.embed_service import EmbedService
@@ -282,15 +305,25 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
         )
 
     workers: list[tuple[str, str, str, Callable]] = [
-        ("parse", settings.rabbitmq_parse_queue, settings.rabbitmq_parse_dlq, _parse_handler),
-        ("chunk", settings.rabbitmq_chunk_queue, settings.rabbitmq_chunk_dlq, _chunk_handler),
+        (
+            "parse",
+            settings.rabbitmq_parse_queue,
+            settings.rabbitmq_parse_dlq,
+            _parse_handler,
+        ),
+        (
+            "chunk",
+            settings.rabbitmq_chunk_queue,
+            settings.rabbitmq_chunk_dlq,
+            _chunk_handler,
+        ),
     ]
 
     # Embed worker — needs a real API key OR a custom base_url (Ollama).
     # "not-needed" is valid when EMBEDDING_BASE_URL is set (e.g. Ollama).
-    _embed_api_key  = settings.embedding_api_key or settings.openai_api_key
+    _embed_api_key = settings.embedding_api_key or settings.openai_api_key
     _embed_base_url = settings.embedding_base_url
-    _embed_ready    = bool(_embed_api_key) and (
+    _embed_ready = bool(_embed_api_key) and (
         _embed_api_key != "not-needed" or bool(_embed_base_url)
     )
     if _embed_ready:
@@ -315,7 +348,14 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
                 embed_event.model_dump(mode="json"),
             )
 
-        workers.append(("embed", settings.rabbitmq_embed_queue, settings.rabbitmq_embed_dlq, _embed_handler))
+        workers.append(
+            (
+                "embed",
+                settings.rabbitmq_embed_queue,
+                settings.rabbitmq_embed_dlq,
+                _embed_handler,
+            )
+        )
     else:
         logger.warning(
             "Embed worker not started: set EMBEDDING_API_KEY (or OPENAI_API_KEY) to enable embeddings"
@@ -335,7 +375,14 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
             event = EmbedEvent.model_validate(payload)
             store_service.process(event)
 
-        workers.append(("store", settings.rabbitmq_store_queue, settings.rabbitmq_store_dlq, _store_handler))
+        workers.append(
+            (
+                "store",
+                settings.rabbitmq_store_queue,
+                settings.rabbitmq_store_dlq,
+                _store_handler,
+            )
+        )
     except RuntimeError as exc:
         logger.warning("Store worker not started", extra={"reason": str(exc)})
 
@@ -347,12 +394,17 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
             dlq_name=dlq,
         )
 
-        def _make_target(consumer: RabbitMQConsumer, handler: Callable, worker_name: str) -> Callable:
+        def _make_target(
+            consumer: RabbitMQConsumer, handler: Callable, worker_name: str
+        ) -> Callable:
             def _run() -> None:
                 try:
                     consumer.consume_forever(handler)
                 except Exception:
-                    logger.exception("Pipeline worker crashed", extra={"worker": worker_name})
+                    logger.exception(
+                        "Pipeline worker crashed", extra={"worker": worker_name}
+                    )
+
             return _run
 
         thread = threading.Thread(
@@ -366,7 +418,9 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
 
 def _startup_services(app: FastAPI, settings: Settings) -> None:
     # Lifespan startup must be idempotent across test clients/reloads.
-    if not hasattr(app.state, "postgres_engine") or not hasattr(app.state, "redis_client"):
+    if not hasattr(app.state, "postgres_engine") or not hasattr(
+        app.state, "redis_client"
+    ):
         postgres_engine, redis_client = _create_infrastructure(settings)
         app.state.postgres_engine = postgres_engine
         app.state.redis_client = redis_client

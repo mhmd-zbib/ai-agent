@@ -11,7 +11,7 @@ class BaseLLM(ABC):
     def generate(
         self,
         payload: AgentInput,
-        response_mode: Literal["chat", "tool_call"] = "chat",
+        response_mode: Literal["chat", "tool_call", "json"] = "chat",
         tools: Optional[list[dict[str, Any]]] = None,
     ) -> AIResponse:
         """
@@ -22,6 +22,7 @@ class BaseLLM(ABC):
             response_mode:
                 - "chat": Normal conversational mode, returns plain text
                 - "tool_call": Structured mode, enforces JSON with tool actions
+                - "json": Forces JSON output; raw JSON string returned in content
             tools: Optional OpenAI-compatible function tool definitions
 
         Returns:

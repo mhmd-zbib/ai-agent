@@ -1,6 +1,7 @@
 """
 ReasoningAgent — step-by-step reasoning over retrieved context (LLM).
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,8 @@ class ReasoningAgent:
     def run(self, input: ReasoningInput) -> ReasoningOutput:
         prompt = self._build_prompt(input)
         ai_response = self._llm.generate(
-            AgentInput(user_message=prompt, session_id=input.session_id, history=[])
+            AgentInput(user_message=prompt, session_id=input.session_id, history=[]),
+            response_mode="json",
         )
         raw_content = ai_response.content
         try:
@@ -64,9 +66,31 @@ class ReasoningAgent:
             lines = [f"[{c.chunk_id}] {c.text}" for c in input.chunks]
             context_block = "CONTEXT:\n" + "\n".join(lines) + "\n\n"
 
+        history_block = ""
+        if input.history:
+            lines = [f"{m['role']}: {m['content'][:300]}" for m in input.history[-6:]]
+            history_block = "CONVERSATION HISTORY:\n" + "\n".join(lines) + "\n\n"
+
+        no_context_instruction = (
+            "NO CONTEXT WAS PROVIDED. You MUST set context_adequacy to "
+            '"insufficient" and answer with exactly: '
+            '"I cannot answer this question because no relevant document context was found." '
+            "Do NOT use your training knowledge.\n\n"
+            if not input.chunks
+            else ""
+        )
+
         return (
             f"{context_block}"
+            f"{history_block}"
             f"QUESTION: {input.question}\n\n"
+            f"{no_context_instruction}"
+            "STRICT RULES:\n"
+            "1. Answer ONLY from the CONTEXT above. Do NOT use your training knowledge.\n"
+            "2. If the context does not contain enough information to answer, set "
+            'context_adequacy to "insufficient".\n'
+            "3. Never invent facts, courses, topics, or details not present in the context.\n"
+            "4. Resolve pronouns/references using CONVERSATION HISTORY only.\n\n"
             "Respond ONLY in this exact JSON format:\n"
             '{"answer": "...", "steps": [{"step_number": 1, "reasoning": "..."}], '
             '"context_adequacy": "sufficient", "confidence": 0.9}'

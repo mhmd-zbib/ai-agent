@@ -1,9 +1,9 @@
 """
 Unit tests for ActionAgent.
 """
+
 from __future__ import annotations
 
-import pytest
 
 from app.modules.agent.schemas.sub_agents import ActionInput
 from app.modules.agent.agents.action_agent import ActionAgent

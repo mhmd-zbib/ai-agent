@@ -6,7 +6,7 @@ Implements Strategy Pattern for different caching approaches.
 
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 K = TypeVar("K")

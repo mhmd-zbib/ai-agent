@@ -57,6 +57,8 @@ def _build_metadata(event: EmbedEvent) -> dict:
         "chunk_index": event.chunk_index,
         "total_chunks": event.total_chunks,
         "chunk_text": event.chunk_text[:_MAX_CHUNK_TEXT_CHARS],
+        "course_code": event.course_code,
+        "university_name": str(event.university_name),
     }
 
     if event.user_id:
@@ -73,10 +75,10 @@ def _build_metadata(event: EmbedEvent) -> dict:
 
 class StoreService:
     def __init__(
-        self,
-        *,
-        vector_client: IVectorClient,
-        status_repository: IDocumentStatusRepository,
+            self,
+            *,
+            vector_client: IVectorClient,
+            status_repository: IDocumentStatusRepository,
     ) -> None:
         self._vector_client = vector_client
         self._status_repo = status_repository

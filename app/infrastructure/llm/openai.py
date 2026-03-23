@@ -87,11 +87,15 @@ class OpenAIClient(BaseLLM):
     def _build_messages(
         self,
         payload: AgentInput,
-        response_mode: Literal["chat", "tool_call"],
+        response_mode: Literal["chat", "tool_call", "json"],
     ) -> list[dict[str, str]]:
-        messages: list[dict[str, str]] = [{"role": "system", "content": self._system_prompt}]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": self._system_prompt}
+        ]
         if response_mode == "chat":
-            messages.append({"role": "system", "content": self._chat_mode_instruction()})
+            messages.append(
+                {"role": "system", "content": self._chat_mode_instruction()}
+            )
         messages.extend(
             {
                 "role": item["role"],
@@ -146,7 +150,9 @@ class OpenAIClient(BaseLLM):
             raise ValueError("AI returned empty JSON object")
         return AIResponse(**ai_response_data)
 
-    def _append_tool_mode_repair_instruction(self, messages: list[dict[str, str]]) -> None:
+    def _append_tool_mode_repair_instruction(
+        self, messages: list[dict[str, str]]
+    ) -> None:
         messages.append(
             {
                 "role": "system",
@@ -206,7 +212,7 @@ class OpenAIClient(BaseLLM):
     def generate(
         self,
         payload: AgentInput,
-        response_mode: Literal["chat", "tool_call"] = "chat",
+        response_mode: Literal["chat", "tool_call", "json"] = "chat",
         tools: Optional[list[dict[str, Any]]] = None,
     ) -> AIResponse:
         """
@@ -220,12 +226,16 @@ class OpenAIClient(BaseLLM):
             tools: Optional list of tools to provide to OpenAI for native function calling
         """
         if self._client is None:
-            raise ConfigurationError("OPENAI_API_KEY is required to use the chat endpoint.")
+            raise ConfigurationError(
+                "OPENAI_API_KEY is required to use the chat endpoint."
+            )
 
         messages = self._build_messages(payload=payload, response_mode=response_mode)
 
         if response_mode == "chat":
             return self._generate_chat_mode(messages, tools)
+        if response_mode == "json":
+            return self._generate_json_mode(messages)
         return self._generate_tool_mode(messages)
 
     def _generate_chat_mode(
@@ -295,6 +305,35 @@ class OpenAIClient(BaseLLM):
             )
             raise UpstreamServiceError(
                 f"Failed to generate chat response from OpenAI: {e}"
+            ) from e
+
+    def _generate_json_mode(self, messages: list) -> AIResponse:
+        """Generate a raw JSON response; content is the JSON string verbatim."""
+        try:
+            logger.debug(
+                "Sending json mode request to OpenAI",
+                extra={"model": self._model, "message_count": len(messages)},
+            )
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                response_format={"type": "json_object"},
+            )
+            content = response.choices[0].message.content or ""
+            logger.info(
+                "Successfully generated json response",
+                extra={"content_length": len(content)},
+            )
+            return AIResponse(
+                type="text",
+                content=content,
+                tool_action=None,
+                metadata=ResponseMetadata(),
+            )
+        except Exception as e:
+            logger.error("Error in json mode generation", extra={"error": str(e)})
+            raise UpstreamServiceError(
+                f"Failed to generate json response from OpenAI: {e}"
             ) from e
 
     def _generate_tool_mode(self, messages: list) -> AIResponse:

@@ -77,6 +77,8 @@ class EmbedService:
                 source_page=event.source_page,
                 total_chunks=event.total_chunks,
                 vector=vector,
+                course_code=event.course_code,
+                university_name=event.university_name,
             )
 
         except Exception as exc:

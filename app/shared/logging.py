@@ -8,42 +8,67 @@ from datetime import UTC, datetime
 # ANSI color codes
 # ---------------------------------------------------------------------------
 _RESET = "\033[0m"
-_BOLD  = "\033[1m"
-_DIM   = "\033[2m"
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
 
 _LEVEL_COLORS = {
-    "DEBUG":    "\033[96m",   # bright cyan
-    "INFO":     "\033[92m",   # bright green
-    "WARNING":  "\033[93m",   # bright yellow
-    "ERROR":    "\033[91m",   # bright red
-    "CRITICAL": "\033[95m",   # bright magenta + bold
+    "DEBUG": "\033[96m",  # bright cyan
+    "INFO": "\033[92m",  # bright green
+    "WARNING": "\033[93m",  # bright yellow
+    "ERROR": "\033[91m",  # bright red
+    "CRITICAL": "\033[95m",  # bright magenta + bold
 }
 
 # ---------------------------------------------------------------------------
 # Standard LogRecord fields — we skip these when extracting user extras
 # ---------------------------------------------------------------------------
-_LOGRECORD_ATTRS = frozenset({
-    "name", "msg", "args", "created", "relativeCreated",
-    "thread", "threadName", "process", "processName",
-    "pathname", "filename", "module", "funcName", "lineno",
-    "exc_info", "exc_text", "stack_info", "levelname", "levelno",
-    "msecs", "message", "taskName",
-})
+_LOGRECORD_ATTRS = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "created",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "process",
+        "processName",
+        "pathname",
+        "filename",
+        "module",
+        "funcName",
+        "lineno",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "levelname",
+        "levelno",
+        "msecs",
+        "message",
+        "taskName",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Logger name → short label mapping
 # ---------------------------------------------------------------------------
 _KNOWN_NAMES: dict[str, str] = {
     "uvicorn.access": "http",
-    "uvicorn.error":  "uvicorn",
-    "uvicorn":        "uvicorn",
-    "httpx":          "httpx",
+    "uvicorn.error": "uvicorn",
+    "uvicorn": "uvicorn",
+    "httpx": "httpx",
 }
 
-_SKIP_SEGMENTS = frozenset({
-    "app", "modules", "services", "repositories",
-    "infrastructure", "shared",
-})
+_SKIP_SEGMENTS = frozenset(
+    {
+        "app",
+        "modules",
+        "services",
+        "repositories",
+        "infrastructure",
+        "shared",
+    }
+)
 
 
 def _shorten_name(name: str) -> str:
@@ -60,6 +85,7 @@ def _shorten_name(name: str) -> str:
 # Formatter
 # ---------------------------------------------------------------------------
 
+
 class AppFormatter(logging.Formatter):
     """
     Colored, structured formatter.
@@ -72,10 +98,10 @@ class AppFormatter(logging.Formatter):
     _color: bool = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
 
     def format(self, record: logging.LogRecord) -> str:
-        ts    = datetime.now(UTC).strftime("%H:%M:%S")
+        ts = datetime.now(UTC).strftime("%H:%M:%S")
         level = record.levelname
-        name  = _shorten_name(record.name)
-        msg   = record.getMessage()
+        name = _shorten_name(record.name)
+        msg = record.getMessage()
 
         # Collect extras (any attribute not part of the base LogRecord schema)
         extras: list[str] = []
@@ -86,23 +112,24 @@ class AppFormatter(logging.Formatter):
             extras.append(f"{key}={formatted}")
 
         if self._color:
-            color      = _LEVEL_COLORS.get(level, "")
-            level_str  = f"{color}{_BOLD}{level:<8}{_RESET}"
-            name_str   = f"\033[34m{_BOLD}{name:<22}{_RESET}"
-            extra_str  = (
-                "  " + "  ".join(f"{_DIM}{e}{_RESET}" for e in extras)
-                if extras else ""
+            color = _LEVEL_COLORS.get(level, "")
+            level_str = f"{color}{_BOLD}{level:<8}{_RESET}"
+            name_str = f"\033[34m{_BOLD}{name:<22}{_RESET}"
+            extra_str = (
+                "  " + "  ".join(f"{_DIM}{e}{_RESET}" for e in extras) if extras else ""
             )
         else:
-            level_str  = f"{level:<8}"
-            name_str   = f"{name:<22}"
-            extra_str  = ("  " + "  ".join(extras)) if extras else ""
+            level_str = f"{level:<8}"
+            name_str = f"{name:<22}"
+            extra_str = ("  " + "  ".join(extras)) if extras else ""
 
         line = f"{ts}  {level_str}  {name_str}  {msg}{extra_str}"
 
         if record.exc_info:
             exc_type, exc_value, exc_tb = record.exc_info
-            line += "\n" + "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+            line += "\n" + "".join(
+                traceback.format_exception(exc_type, exc_value, exc_tb)
+            )
 
         return line
 
@@ -110,6 +137,7 @@ class AppFormatter(logging.Formatter):
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def configure_logging(level: str = "INFO") -> None:
     """

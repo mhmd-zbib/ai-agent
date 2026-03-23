@@ -34,7 +34,9 @@ def _create_vector_client(settings: Settings) -> IVectorClient:
             )
         from app.infrastructure.vector.pinecone import PineconeVectorClient
 
-        logger.info("Vector backend: Pinecone", extra={"index": settings.pinecone_index_name})
+        logger.info(
+            "Vector backend: Pinecone", extra={"index": settings.pinecone_index_name}
+        )
         return PineconeVectorClient(
             api_key=settings.pinecone_api_key,
             index_name=settings.pinecone_index_name,

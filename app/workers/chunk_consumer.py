@@ -10,7 +10,10 @@ Listens on ``documents.chunk.queue``. For each ParsedEvent:
 """
 
 from app.infrastructure.database.postgres import create_postgres_engine
-from app.infrastructure.messaging.rabbitmq import RabbitMQConsumer, publish_batch_to_queue
+from app.infrastructure.messaging.rabbitmq import (
+    RabbitMQConsumer,
+    publish_batch_to_queue,
+)
 from app.infrastructure.storage.minio import MinioStorageClient
 from app.modules.pipeline.repositories.document_status_repository import (
     DocumentStatusRepository,

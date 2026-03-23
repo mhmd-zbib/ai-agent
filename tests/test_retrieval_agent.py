@@ -3,9 +3,9 @@ Unit tests for RetrievalAgent.
 
 RAGService is faked; all search results are injected via _FakeRagService.
 """
+
 from __future__ import annotations
 
-import pytest
 
 from app.modules.agent.agents.retrieval_agent import RetrievalAgent
 from app.modules.agent.schemas.sub_agents import RetrievalInput
@@ -18,7 +18,9 @@ from app.modules.rag.schemas import SearchQuery, SearchResult
 
 
 class _FakeRagService:
-    def __init__(self, results: list[SearchResult], raise_on_search: bool = False) -> None:
+    def __init__(
+        self, results: list[SearchResult], raise_on_search: bool = False
+    ) -> None:
         self._results = results
         self._raise = raise_on_search
         self.last_query: SearchQuery | None = None
@@ -35,7 +37,9 @@ class _FakeRagService:
 # ---------------------------------------------------------------------------
 
 
-def _make_result(chunk_id: str, text: str, score: float = 0.9, source: str = "doc.pdf") -> SearchResult:
+def _make_result(
+    chunk_id: str, text: str, score: float = 0.9, source: str = "doc.pdf"
+) -> SearchResult:
     return SearchResult(chunk_id=chunk_id, score=score, text=text, source=source)
 
 

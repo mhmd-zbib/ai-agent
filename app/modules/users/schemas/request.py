@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.shared.enums import Major, University
+
 
 class UserCreate(BaseModel):
     """Request schema for user registration."""
@@ -15,6 +17,14 @@ class UserCreate(BaseModel):
         max_length=128,
         description="User's password (8-128 characters)",
         examples=["SecurePassword123!"],
+    )
+    university: University = Field(
+        description="Student's university",
+        examples=["LIU"],
+    )
+    major: Major = Field(
+        description="Student's major",
+        examples=["COMPUTER_SCIENCE"],
     )
 
 

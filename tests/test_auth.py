@@ -12,8 +12,18 @@ class FakeUserService:
         if payload.email in self._users:
             raise ConflictError("User with this email already exists.")
 
-        user = {"id": "user-1", "email": payload.email}
-        self._users[payload.email] = {"id": user["id"], "password": payload.password}
+        user = {
+            "id": "user-1",
+            "email": payload.email,
+            "university": payload.university.value,
+            "major": payload.major.value,
+        }
+        self._users[payload.email] = {
+            "id": user["id"],
+            "password": payload.password,
+            "university": payload.university.value,
+            "major": payload.major.value,
+        }
         return user
 
     def login(self, payload):
@@ -26,7 +36,12 @@ class FakeUserService:
     def get_user_from_token(self, token: str):
         if token != "good-token":
             raise AuthenticationError("Invalid or expired token.")
-        return {"id": "user-1", "email": "test@example.com"}
+        return {
+            "id": "user-1",
+            "email": "test@example.com",
+            "university": "LIU",
+            "major": "COMPUTER_SCIENCE",
+        }
 
     def close(self) -> None:
         return
@@ -39,10 +54,18 @@ def test_register_and_login() -> None:
 
     register_response = client.post(
         "/v1/users/register",
-        json={"email": "test@example.com", "password": "password123"},
+        json={
+            "email": "test@example.com",
+            "password": "password123",
+            "university": "LIU",
+            "major": "COMPUTER_SCIENCE",
+        },
     )
     assert register_response.status_code == 201
-    assert register_response.json()["email"] == "test@example.com"
+    body = register_response.json()
+    assert body["email"] == "test@example.com"
+    assert body["university"] == "LIU"
+    assert body["major"] == "COMPUTER_SCIENCE"
 
     login_response = client.post(
         "/v1/users/login",
@@ -50,6 +73,52 @@ def test_register_and_login() -> None:
     )
     assert login_response.status_code == 200
     assert login_response.json()["access_token"] == "good-token"
+
+
+def test_register_missing_university_returns_422() -> None:
+    app = create_app()
+    app.state.user_service = FakeUserService()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/users/register",
+        json={"email": "test@example.com", "password": "password123"},
+    )
+    assert response.status_code == 422
+
+
+def test_register_invalid_university_returns_422() -> None:
+    app = create_app()
+    app.state.user_service = FakeUserService()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/users/register",
+        json={
+            "email": "test@example.com",
+            "password": "password123",
+            "university": "INVALID",
+            "major": "COMPUTER_SCIENCE",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_register_invalid_major_returns_422() -> None:
+    app = create_app()
+    app.state.user_service = FakeUserService()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/users/register",
+        json={
+            "email": "test@example.com",
+            "password": "password123",
+            "university": "LIU",
+            "major": "INVALID_MAJOR",
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_me_requires_token() -> None:
@@ -71,5 +140,10 @@ def test_me_with_token() -> None:
         headers={"Authorization": "Bearer good-token"},
     )
     assert response.status_code == 200
-    assert response.json() == {"id": "user-1", "email": "test@example.com"}
-
+    body = response.json()
+    assert body == {
+        "id": "user-1",
+        "email": "test@example.com",
+        "university": "LIU",
+        "major": "COMPUTER_SCIENCE",
+    }

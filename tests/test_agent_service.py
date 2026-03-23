@@ -4,9 +4,9 @@ Unit tests for AgentService.
 All external dependencies (LLM, tool registry) are faked so the tests run
 without any network or API access.
 """
+
 from typing import Any, Literal, Optional
 
-import pytest
 
 from app.modules.agent.services.agent_service import AgentService
 from app.modules.tools.base import BaseTool
@@ -18,6 +18,7 @@ from app.shared.schemas import AgentInput, AIResponse, ToolAction
 # ---------------------------------------------------------------------------
 # Shared fakes
 # ---------------------------------------------------------------------------
+
 
 class _FakeLLM(BaseLLM):
     """Returns pre-configured responses in sequence."""
@@ -42,7 +43,11 @@ class _FakeLLM(BaseLLM):
 class _EchoTool(BaseTool):
     name = "echo"
     description = "Echoes back the value argument."
-    parameters = {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"]}
+    parameters = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
 
     def run(self, arguments: dict[str, object]) -> str:
         return str(arguments.get("value", ""))
@@ -57,10 +62,12 @@ class _FailingTool(BaseTool):
         raise RuntimeError("boom")
 
 
-def _make_service(responses: list[AIResponse], tools: list[BaseTool] | None = None) -> tuple[AgentService, _FakeLLM]:
+def _make_service(
+    responses: list[AIResponse], tools: list[BaseTool] | None = None
+) -> tuple[AgentService, _FakeLLM]:
     llm = _FakeLLM(responses)
     registry = ToolRegistry()
-    for tool in (tools or []):
+    for tool in tools or []:
         registry.register(tool)
     return AgentService(llm=llm, tool_registry=registry), llm
 
@@ -73,10 +80,13 @@ def _input(message: str = "hello", session_id: str = "s1") -> AgentInput:
 # Plain-text response (no tool)
 # ---------------------------------------------------------------------------
 
+
 def test_run_plain_text_returns_finalized_response() -> None:
-    service, llm = _make_service([
-        AIResponse(type="text", content="Hello there!"),
-    ])
+    service, llm = _make_service(
+        [
+            AIResponse(type="text", content="Hello there!"),
+        ]
+    )
 
     result = service.run(_input())
 
@@ -88,9 +98,11 @@ def test_run_plain_text_returns_finalized_response() -> None:
 
 def test_run_sets_type_text_regardless_of_initial_type() -> None:
     # Even if LLM returns type="mixed" without a tool, _finalize still sets "text"
-    service, llm = _make_service([
-        AIResponse(type="text", content="No tool today."),
-    ])
+    service, llm = _make_service(
+        [
+            AIResponse(type="text", content="No tool today."),
+        ]
+    )
 
     result = service.run(_input())
 
@@ -101,6 +113,7 @@ def test_run_sets_type_text_regardless_of_initial_type() -> None:
 # ---------------------------------------------------------------------------
 # Tool execution — success
 # ---------------------------------------------------------------------------
+
 
 def test_run_executes_tool_and_calls_followup() -> None:
     service, llm = _make_service(
@@ -176,6 +189,7 @@ def test_run_mixed_type_includes_text_and_tool_result() -> None:
 # Tool execution — failures
 # ---------------------------------------------------------------------------
 
+
 def test_run_unknown_tool_returns_friendly_message() -> None:
     service, llm = _make_service(
         responses=[
@@ -245,6 +259,7 @@ def test_run_weather_unavailable_message_is_friendly() -> None:
 # Followup synthesis fallback
 # ---------------------------------------------------------------------------
 
+
 def test_run_followup_failure_falls_back_to_tool_response() -> None:
     """If the followup LLM call returns empty content, the tool output is kept."""
 
@@ -252,7 +267,9 @@ def test_run_followup_failure_falls_back_to_tool_response() -> None:
         def __init__(self) -> None:
             self.call_count = 0
 
-        def generate(self, payload: AgentInput, response_mode="chat", tools=None) -> AIResponse:
+        def generate(
+            self, payload: AgentInput, response_mode="chat", tools=None
+        ) -> AIResponse:
             self.call_count += 1
             if self.call_count == 1:
                 return AIResponse(
@@ -278,6 +295,7 @@ def test_run_followup_failure_falls_back_to_tool_response() -> None:
 # History propagation in followup
 # ---------------------------------------------------------------------------
 
+
 def test_run_followup_includes_original_history() -> None:
     """The followup AgentInput must carry prior history + the user turn."""
     service, llm = _make_service(
@@ -292,8 +310,13 @@ def test_run_followup_includes_original_history() -> None:
         tools=[_EchoTool()],
     )
 
-    history = [{"role": "user", "content": "prev msg"}, {"role": "assistant", "content": "prev reply"}]
-    agent_input = AgentInput(user_message="what is data?", session_id="s1", history=history)
+    history = [
+        {"role": "user", "content": "prev msg"},
+        {"role": "assistant", "content": "prev reply"},
+    ]
+    agent_input = AgentInput(
+        user_message="what is data?", session_id="s1", history=history
+    )
 
     service.run(agent_input)
 

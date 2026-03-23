@@ -53,7 +53,9 @@ def test_web_search_tool_parses_response(monkeypatch) -> None:
         assert timeout == 8
         return _DummyResponse(payload)
 
-    monkeypatch.setattr("app.modules.tools.implementations.web_search.urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "app.modules.tools.implementations.web_search.urlopen", fake_urlopen
+    )
 
     tool = WebSearchTool()
     output = tool.run({"query": "python"})
@@ -84,7 +86,9 @@ def test_weather_tool_parses_response(monkeypatch) -> None:
             return _DummyResponse(geo_payload)
         return _DummyResponse(weather_payload)
 
-    monkeypatch.setattr("app.modules.tools.implementations.weather.urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        "app.modules.tools.implementations.weather.urlopen", fake_urlopen
+    )
 
     tool = WeatherTool()
     output = tool.run({"city": "Paris"})
@@ -98,4 +102,3 @@ def test_weather_tool_requires_city() -> None:
     output = tool.run({})
 
     assert output == "No city provided."
-

@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 class ShortTermRepositoryProtocol(Protocol):
     """Protocol for short-term repository (enables testing without concrete type)."""
-    
+
     def get_messages(self, session_id: str) -> list[MemoryEntry] | None: ...
     def set_messages(self, session_id: str, messages: list[MemoryEntry]) -> bool: ...
     def delete_messages(self, session_id: str) -> bool: ...
@@ -17,7 +17,7 @@ class ShortTermRepositoryProtocol(Protocol):
 
 class LongTermRepositoryProtocol(Protocol):
     """Protocol for long-term repository (enables testing without concrete type)."""
-    
+
     def get_messages(
         self, session_id: str, limit: int | None = None, offset: int = 0
     ) -> list[MemoryEntry]: ...
@@ -29,16 +29,16 @@ class LongTermRepositoryProtocol(Protocol):
 class MemoryService:
     """
     Memory service implementing cache-aside and write-through patterns with LRU eviction.
-    
+
     This service coordinates between short-term (Redis) and long-term (PostgreSQL)
     storage, providing efficient message retrieval with automatic caching.
-    
+
     Design Patterns:
         - Cache-Aside: Lazy-load from DB on cache miss
         - Write-Through: Write to DB then update cache
         - LRU Eviction: Limit in-memory session tracking
     """
-    
+
     def __init__(
         self,
         short_term_repository: ShortTermRepositoryProtocol,
@@ -47,7 +47,7 @@ class MemoryService:
     ) -> None:
         """
         Initialize the memory service.
-        
+
         Args:
             short_term_repository: Redis-based cache
             long_term_repository: PostgreSQL-based persistence
@@ -62,7 +62,7 @@ class MemoryService:
     def _track_session_access(self, session_id: str) -> None:
         """
         Track session access for LRU eviction.
-        
+
         Maintains an LRU cache of session IDs. When max size is exceeded,
         evicts the least recently used session from Redis.
         """
@@ -71,7 +71,7 @@ class MemoryService:
             self._session_cache_tracker.move_to_end(session_id)
         else:
             self._session_cache_tracker[session_id] = True
-            
+
             # Evict LRU session if over limit
             if len(self._session_cache_tracker) > self._max_cached_sessions:
                 lru_session_id, _ = self._session_cache_tracker.popitem(last=False)
@@ -87,19 +87,19 @@ class MemoryService:
     def get_session_state(self, session_id: str) -> SessionState:
         """
         Retrieve session state with cache-aside pattern.
-        
+
         Flow:
             1. Try to read from cache (Redis)
             2. On cache miss, read from DB
             3. Populate cache with DB data
             4. Track session in LRU
-        
+
         Args:
             session_id: Unique session identifier
-            
+
         Returns:
             SessionState with all messages for the session
-            
+
         Note:
             Redis failures are gracefully handled by falling back to DB.
         """
@@ -111,7 +111,9 @@ class MemoryService:
             return SessionState(session_id=session_id, messages=cached)
 
         # Cache miss - read from long-term storage
-        logger.debug("Cache miss, loading from database", extra={"session_id": session_id})
+        logger.debug(
+            "Cache miss, loading from database", extra={"session_id": session_id}
+        )
         try:
             persisted = self._long_term_repository.get_messages(session_id)
         except Exception as e:
@@ -131,23 +133,23 @@ class MemoryService:
                 "Failed to cache messages after DB load",
                 extra={"session_id": session_id},
             )
-        
+
         return SessionState(session_id=session_id, messages=persisted)
 
     def append_message(self, session_id: str, entry: MemoryEntry) -> None:
         """
         Append a message using write-through pattern.
-        
+
         Flow:
             1. Write to database (source of truth)
             2. Read back full message list from DB
             3. Update cache with fresh data
             4. Track session in LRU
-        
+
         Args:
             session_id: Unique session identifier
             entry: Message to append
-            
+
         Note:
             Database failures will raise exceptions.
             Cache failures are logged but don't fail the operation.
@@ -165,7 +167,9 @@ class MemoryService:
         # Read back and update cache
         try:
             refreshed = self._long_term_repository.get_messages(session_id)
-            cache_success = self._short_term_repository.set_messages(session_id, refreshed)
+            cache_success = self._short_term_repository.set_messages(
+                session_id, refreshed
+            )
             if cache_success:
                 self._track_session_access(session_id)
             else:
@@ -183,13 +187,13 @@ class MemoryService:
     def clear_session(self, session_id: str) -> bool:
         """
         Clear all messages for a session from both cache and database.
-        
+
         Args:
             session_id: Unique session identifier
-            
+
         Returns:
             True if messages were cleared from database, False if session didn't exist
-            
+
         Note:
             Cache is always cleared regardless of database result.
         """
@@ -205,16 +209,16 @@ class MemoryService:
 
         # Always clear from cache (even if DB returned False)
         self._short_term_repository.delete_messages(session_id)
-        
+
         # Remove from LRU tracker
         self._session_cache_tracker.pop(session_id, None)
-        
+
         return cleared
 
     def close(self) -> None:
         """
         Close all resources and connections.
-        
+
         Note:
             Redis connections are managed by the client's connection pool
             and don't need explicit closing.
@@ -229,5 +233,3 @@ class MemoryService:
         finally:
             # Clear the LRU tracker
             self._session_cache_tracker.clear()
-
-

@@ -4,6 +4,7 @@ Intra-module protocols (interfaces) for all sub-agents.
 OrchestratorService depends on these, not on concrete implementations,
 so sub-agents can be mocked, swapped, or extended without touching the orchestrator.
 """
+
 from __future__ import annotations
 
 from typing import Protocol
@@ -13,6 +14,8 @@ from app.modules.agent.schemas.sub_agents import (
     ActionOutput,
     CritiqueInput,
     CritiqueOutput,
+    FormulaVerificationInput,
+    FormulaVerificationOutput,
     MemoryInput,
     MemoryOutput,
     ReasoningInput,
@@ -24,6 +27,7 @@ from app.modules.agent.schemas.sub_agents import (
 __all__ = [
     "IActionAgent",
     "ICritiqueAgent",
+    "IFormulaVerificationAgent",
     "IMemoryAgent",
     "IReasoningAgent",
     "IRetrievalAgent",
@@ -44,6 +48,10 @@ class ICritiqueAgent(Protocol):
 
 class IMemoryAgent(Protocol):
     def run(self, input: MemoryInput) -> MemoryOutput: ...
+
+
+class IFormulaVerificationAgent(Protocol):
+    def run(self, input: FormulaVerificationInput) -> FormulaVerificationOutput: ...
 
 
 class IActionAgent(Protocol):

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -65,7 +64,7 @@ class BaseTool(ABC):
     def to_openai_tool(self) -> dict[str, Any]:
         """
         Convert tool to OpenAI function calling format.
-        
+
         Returns a dictionary compatible with OpenAI's tools parameter format.
         The parameters are already in JSON schema format, so no conversion needed.
         """
@@ -77,4 +76,3 @@ class BaseTool(ABC):
                 "parameters": self.parameters,
             },
         }
-

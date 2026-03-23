@@ -3,13 +3,14 @@ Unit tests for ChatService delegating to OrchestratorService.
 
 Verifies that ChatService maps OrchestratorOutput to a correct ChatResponse.
 """
+
 from __future__ import annotations
 
 from app.modules.agent.schemas.sub_agents import OrchestratorInput, OrchestratorOutput
-from app.modules.agent.services.orchestrator_service import OrchestratorService
 from app.modules.chat.schemas import ChatRequest
 from app.modules.chat.services.chat_service import ChatService
 from app.modules.memory.schemas import SessionState
+from app.shared.enums import University
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +67,9 @@ def test_chat_service_returns_text_type_with_orchestrator_answer() -> None:
         memory_service=_FakeMemoryService(),
     )
 
-    response = service.reply(ChatRequest(session_id="s1", message="weather today"))
+    response = service.reply(
+        ChatRequest(session_id="s1", question="weather today")
+    )
 
     assert response.type == "text"
     assert response.content == "The weather is clear."
@@ -82,7 +85,9 @@ def test_chat_service_tool_action_always_none() -> None:
         memory_service=_FakeMemoryService(),
     )
 
-    response = service.reply(ChatRequest(session_id="s1", message="do something"))
+    response = service.reply(
+        ChatRequest(session_id="s1", question="do something")
+    )
 
     assert response.tool_action is None
 
@@ -94,7 +99,14 @@ def test_chat_service_passes_use_rag_flag() -> None:
         memory_service=_FakeMemoryService(),
     )
 
-    service.reply(ChatRequest(session_id="s1", message="document question", use_rag=True))
+    service.reply(
+        ChatRequest(
+            session_id="s1",
+            course_code="CS101",
+            question="document question",
+            use_rag=True,
+        )
+    )
 
     assert orchestrator.last_input is not None
     assert orchestrator.last_input.use_retrieval is True
@@ -108,7 +120,9 @@ def test_chat_service_persists_turn() -> None:
         memory_service=memory,
     )
 
-    service.reply(ChatRequest(session_id="s1", message="user msg"))
+    service.reply(
+        ChatRequest(session_id="s1", question="user msg")
+    )
 
     # get_session_state + 2 appends (user + assistant)
     assert len(memory.messages) == 2
@@ -123,7 +137,28 @@ def test_chat_service_metadata_carries_confidence() -> None:
         memory_service=_FakeMemoryService(),
     )
 
-    response = service.reply(ChatRequest(session_id="s1", message="q"))
+    response = service.reply(
+        ChatRequest(session_id="s1", question="q")
+    )
 
     assert response.metadata is not None
     assert response.metadata.confidence == 0.77
+
+
+def test_chat_service_passes_course_code_and_university() -> None:
+    orchestrator = _FakeOrchestratorService(answer="filtered answer")
+    service = ChatService(
+        orchestrator_service=orchestrator,  # type: ignore[arg-type]
+        memory_service=_FakeMemoryService(),
+    )
+
+    session = service.create_session("CS201")
+
+    service.reply(
+        ChatRequest(session_id=session.session_id, question="explain polymorphism"),
+        university_name=University.AUB,
+    )
+
+    assert orchestrator.last_input is not None
+    assert orchestrator.last_input.course_code == "CS201"
+    assert orchestrator.last_input.university_name == "AUB"

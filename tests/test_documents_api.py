@@ -60,7 +60,12 @@ def test_initiate_upload_returns_presigned_urls() -> None:
     app = create_app()
     fake_service = _FakeDocumentService()
 
-    app.dependency_overrides[deps.get_current_user] = lambda: UserOut(id="user-123", email="test@example.com")
+    app.dependency_overrides[deps.get_current_user] = lambda: UserOut(
+        id="user-123",
+        email="test@example.com",
+        university="LIU",
+        major="COMPUTER_SCIENCE",
+    )
     app.dependency_overrides[deps.get_document_service] = lambda: fake_service
 
     client = TestClient(app)
@@ -92,7 +97,12 @@ def test_complete_upload_triggers_event() -> None:
     app = create_app()
     fake_service = _FakeDocumentService()
 
-    app.dependency_overrides[deps.get_current_user] = lambda: UserOut(id="user-123", email="test@example.com")
+    app.dependency_overrides[deps.get_current_user] = lambda: UserOut(
+        id="user-123",
+        email="test@example.com",
+        university="LIU",
+        major="COMPUTER_SCIENCE",
+    )
     app.dependency_overrides[deps.get_document_service] = lambda: fake_service
 
     client = TestClient(app)
@@ -106,6 +116,8 @@ def test_complete_upload_triggers_event() -> None:
                 {"chunk_index": 0, "size_bytes": 1048576},
                 {"chunk_index": 1, "size_bytes": 524288},
             ],
+            "course_code": "CSC101",
+            "university_name": "LIU",
         },
     )
 
@@ -119,3 +131,5 @@ def test_complete_upload_triggers_event() -> None:
     assert upload_id == "upload-1"
     assert len(req.chunks) == 2
     assert uid == "user-123"
+    assert req.course_code == "CSC101"
+    assert req.university_name == "LIU"

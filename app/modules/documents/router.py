@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Depends, status
 
-from app.modules.documents.schemas import UploadCompleteRequest, UploadCompleteResponse, UploadInitiateRequest, UploadInitiateResponse
+from app.modules.documents.schemas import (
+    UploadCompleteRequest,
+    UploadCompleteResponse,
+    UploadInitiateRequest,
+    UploadInitiateResponse,
+)
 from app.modules.documents.services import DocumentService
 from app.modules.users.schemas import UserOut
 from app.shared import deps
@@ -8,7 +13,11 @@ from app.shared import deps
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
 
-@router.post("/uploads", response_model=UploadInitiateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/uploads",
+    response_model=UploadInitiateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def initiate_upload(
     body: UploadInitiateRequest,
     current_user: UserOut = Depends(deps.get_current_user),
@@ -25,7 +34,11 @@ async def initiate_upload(
     )
 
 
-@router.post("/uploads/{upload_id}/complete", response_model=UploadCompleteResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/uploads/{upload_id}/complete",
+    response_model=UploadCompleteResponse,
+    status_code=status.HTTP_200_OK,
+)
 async def complete_upload(
     upload_id: str,
     body: UploadCompleteRequest,

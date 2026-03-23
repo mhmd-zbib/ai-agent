@@ -162,7 +162,9 @@ class EmbeddingService:
         if len(valid_texts) > self._config.max_batch_size:
             return self._process_large_batch(valid_texts)
 
-        cached_embeddings, texts_to_fetch, fetch_indices = self._check_batch_cache(valid_texts)
+        cached_embeddings, texts_to_fetch, fetch_indices = self._check_batch_cache(
+            valid_texts
+        )
 
         logger.debug(
             "Processing batch embedding request",
@@ -183,9 +185,13 @@ class EmbeddingService:
         for text, embedding in zip(texts_to_fetch, new_embeddings):
             self._cache.set(text, embedding)
 
-        return self._combine_batch_results(valid_texts, cached_embeddings, new_embeddings, fetch_indices)
+        return self._combine_batch_results(
+            valid_texts, cached_embeddings, new_embeddings, fetch_indices
+        )
 
-    def _validate_and_normalize_batch(self, texts: list[str]) -> tuple[list[str], list[int]]:
+    def _validate_and_normalize_batch(
+        self, texts: list[str]
+    ) -> tuple[list[str], list[int]]:
         valid_texts: list[str] = []
         valid_indices: list[int] = []
 

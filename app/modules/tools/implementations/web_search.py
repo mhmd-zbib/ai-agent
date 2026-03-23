@@ -40,7 +40,9 @@ class WebSearchTool(BaseTool):
             max_results = 3
         max_results = max(1, min(max_results, 5))
 
-        params = urlencode({"q": query, "format": "json", "no_html": 1, "no_redirect": 1})
+        params = urlencode(
+            {"q": query, "format": "json", "no_html": 1, "no_redirect": 1}
+        )
         url = f"https://api.duckduckgo.com/?{params}"
 
         try:
@@ -58,7 +60,11 @@ class WebSearchTool(BaseTool):
                 links.append(f"- {topic['Text']}: {topic['FirstURL']}")
             elif isinstance(topic, dict) and "Topics" in topic:
                 for nested in topic.get("Topics", []):
-                    if isinstance(nested, dict) and "FirstURL" in nested and "Text" in nested:
+                    if (
+                        isinstance(nested, dict)
+                        and "FirstURL" in nested
+                        and "Text" in nested
+                    ):
                         links.append(f"- {nested['Text']}: {nested['FirstURL']}")
             if len(links) >= max_results:
                 break

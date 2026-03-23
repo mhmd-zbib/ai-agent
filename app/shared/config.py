@@ -152,20 +152,36 @@ class Settings(BaseSettings):
     )
 
     # Stage 1 — parse
-    rabbitmq_parse_queue: str = Field(default="documents.parse.queue", alias="RABBITMQ_PARSE_QUEUE")
-    rabbitmq_parse_dlq: str = Field(default="documents.parse.dlq", alias="RABBITMQ_PARSE_DLQ")
+    rabbitmq_parse_queue: str = Field(
+        default="documents.parse.queue", alias="RABBITMQ_PARSE_QUEUE"
+    )
+    rabbitmq_parse_dlq: str = Field(
+        default="documents.parse.dlq", alias="RABBITMQ_PARSE_DLQ"
+    )
 
     # Stage 2 — chunk
-    rabbitmq_chunk_queue: str = Field(default="documents.chunk.queue", alias="RABBITMQ_CHUNK_QUEUE")
-    rabbitmq_chunk_dlq: str = Field(default="documents.chunk.dlq", alias="RABBITMQ_CHUNK_DLQ")
+    rabbitmq_chunk_queue: str = Field(
+        default="documents.chunk.queue", alias="RABBITMQ_CHUNK_QUEUE"
+    )
+    rabbitmq_chunk_dlq: str = Field(
+        default="documents.chunk.dlq", alias="RABBITMQ_CHUNK_DLQ"
+    )
 
     # Stage 3 — embed
-    rabbitmq_embed_queue: str = Field(default="documents.embed.queue", alias="RABBITMQ_EMBED_QUEUE")
-    rabbitmq_embed_dlq: str = Field(default="documents.embed.dlq", alias="RABBITMQ_EMBED_DLQ")
+    rabbitmq_embed_queue: str = Field(
+        default="documents.embed.queue", alias="RABBITMQ_EMBED_QUEUE"
+    )
+    rabbitmq_embed_dlq: str = Field(
+        default="documents.embed.dlq", alias="RABBITMQ_EMBED_DLQ"
+    )
 
     # Stage 4 — store
-    rabbitmq_store_queue: str = Field(default="documents.store.queue", alias="RABBITMQ_STORE_QUEUE")
-    rabbitmq_store_dlq: str = Field(default="documents.store.dlq", alias="RABBITMQ_STORE_DLQ")
+    rabbitmq_store_queue: str = Field(
+        default="documents.store.queue", alias="RABBITMQ_STORE_QUEUE"
+    )
+    rabbitmq_store_dlq: str = Field(
+        default="documents.store.dlq", alias="RABBITMQ_STORE_DLQ"
+    )
 
     # Chunker settings
     chunk_window_tokens: int = Field(default=512, alias="CHUNK_WINDOW_TOKENS")

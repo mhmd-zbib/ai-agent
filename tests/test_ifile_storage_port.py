@@ -4,10 +4,11 @@ Tests confirming ParseService and ChunkService depend on IFileStorage, not Minio
 Uses a plain fake object (no inheritance from MinioStorageClient) to prove
 the dependency is satisfied by duck typing alone.
 """
+
 import json
 from datetime import timedelta
-from unittest.mock import MagicMock
 
+from app.shared.enums import University
 from app.shared.protocols import IFileStorage
 from app.modules.documents.schemas.events import DocumentUploadedEvent
 from app.modules.pipeline.schemas.events import ParsedEvent
@@ -18,6 +19,7 @@ from app.modules.pipeline.services.parse_service import ParseService
 # ---------------------------------------------------------------------------
 # Fake IFileStorage — does NOT inherit from MinioStorageClient
 # ---------------------------------------------------------------------------
+
 
 class _FakeStorage:
     """In-memory object store that satisfies IFileStorage by duck typing."""
@@ -41,6 +43,7 @@ class _FakeStorage:
 # Fake status repo
 # ---------------------------------------------------------------------------
 
+
 class _FakeStatusRepo:
     def update_status(self, *, document_id: str, status: str) -> None:
         pass
@@ -51,7 +54,9 @@ class _FakeStatusRepo:
     def update_total_chunks(self, *, document_id: str, total_chunks: int) -> None:
         pass
 
-    def update_status_conditional(self, *, document_id: str, new_status: str, from_status: str) -> None:
+    def update_status_conditional(
+        self, *, document_id: str, new_status: str, from_status: str
+    ) -> None:
         pass
 
 
@@ -59,23 +64,28 @@ class _FakeStatusRepo:
 # ParseService tests
 # ---------------------------------------------------------------------------
 
+
 def test_parse_service_accepts_ifile_storage_duck_type() -> None:
     """ParseService works with any object satisfying IFileStorage (no concrete class)."""
-    manifest = json.dumps({
-        "upload_id": "up-1",
-        "file_name": "hello.txt",
-        "content_type": "text/plain",
-        "chunk_count": 1,
-        "total_size_bytes": 5,
-        "chunk_keys": ["documents/up-1/chunks/000000"],
-    }).encode()
+    manifest = json.dumps(
+        {
+            "upload_id": "up-1",
+            "file_name": "hello.txt",
+            "content_type": "text/plain",
+            "chunk_count": 1,
+            "total_size_bytes": 5,
+            "chunk_keys": ["documents/up-1/chunks/000000"],
+        }
+    ).encode()
 
     file_bytes = b"hello"
 
-    storage = _FakeStorage({
-        "documents/up-1/manifest.json": manifest,
-        "documents/up-1/chunks/000000": file_bytes,
-    })
+    storage = _FakeStorage(
+        {
+            "documents/up-1/manifest.json": manifest,
+            "documents/up-1/chunks/000000": file_bytes,
+        }
+    )
 
     service = ParseService(storage=storage, status_repository=_FakeStatusRepo())
 
@@ -91,6 +101,8 @@ def test_parse_service_accepts_ifile_storage_duck_type() -> None:
         manifest_key="documents/up-1/manifest.json",
         chunk_count=1,
         total_size_bytes=5,
+        course_code="CSC101",
+        university_name=University.LIU,
     )
 
     result = service.process(event)
@@ -125,6 +137,8 @@ def test_chunk_service_accepts_ifile_storage_duck_type() -> None:
         parsed_text_key="parsed/text.txt",
         parsed_pages_key=None,
         total_pages=None,
+        course_code="CSC101",
+        university_name=University.LIU,
     )
 
     chunks = service.process(event)

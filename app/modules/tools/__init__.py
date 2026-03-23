@@ -14,6 +14,7 @@ from app.modules.tools.implementations import (
     CalculatorTool,
     DateTimeNowTool,
     DocumentLookupTool,
+    ScientificCalcTool,
     WeatherTool,
     WebSearchTool,
 )
@@ -44,9 +45,14 @@ def get_tool_registry(
     # Always register production tools
     registry.register(CalculatorTool())
     registry.register(DateTimeNowTool())
+    registry.register(ScientificCalcTool())
     registry.register(WebSearchTool())
     registry.register(WeatherTool())
-    registry.register(DocumentLookupTool(vector_client=vector_client, embedding_client=embedding_client))
+    registry.register(
+        DocumentLookupTool(
+            vector_client=vector_client, embedding_client=embedding_client
+        )
+    )
 
     # Conditionally register demo tools for development/testing
     settings = get_settings()

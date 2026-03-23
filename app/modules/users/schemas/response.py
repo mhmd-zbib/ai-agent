@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.shared.enums import Major, University
+
 
 class UserOut(BaseModel):
     """Response schema for user information (without sensitive data)."""
@@ -11,6 +13,14 @@ class UserOut(BaseModel):
     email: str = Field(
         description="User's email address",
         examples=["user@example.com"],
+    )
+    university: University = Field(
+        description="Student's university",
+        examples=["LIU"],
+    )
+    major: Major = Field(
+        description="Student's major",
+        examples=["COMPUTER_SCIENCE"],
     )
 
 
@@ -26,4 +36,3 @@ class TokenResponse(BaseModel):
         description="Token type (always 'bearer' for JWT)",
         examples=["bearer"],
     )
-

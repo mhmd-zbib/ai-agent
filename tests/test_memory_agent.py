@@ -1,12 +1,12 @@
 """
 Unit tests for MemoryAgent.
 """
+
 from __future__ import annotations
 
 import json
 from typing import Any, Literal, Optional
 
-import pytest
 
 from app.modules.agent.schemas.sub_agents import MemoryInput
 from app.modules.agent.agents.memory_agent import MemoryAgent
@@ -46,8 +46,16 @@ def _valid_memory_json() -> str:
     return json.dumps(
         {
             "facts": [
-                {"category": "preference", "fact": "User prefers Python.", "importance": "high"},
-                {"category": "topic", "fact": "Discussed RAG pipelines.", "importance": "medium"},
+                {
+                    "category": "preference",
+                    "fact": "User prefers Python.",
+                    "importance": "high",
+                },
+                {
+                    "category": "topic",
+                    "fact": "Discussed RAG pipelines.",
+                    "importance": "medium",
+                },
             ],
             "summary_for_storage": "User is a Python developer exploring RAG.",
         }
@@ -62,7 +70,9 @@ def _valid_memory_json() -> str:
 def test_facts_extracted_correctly() -> None:
     agent = MemoryAgent(llm=_FakeLLM([_valid_memory_json()]))
     output = agent.run(
-        MemoryInput(session_id="s1", conversation_summary="We talked about Python and RAG.")
+        MemoryInput(
+            session_id="s1", conversation_summary="We talked about Python and RAG."
+        )
     )
 
     assert len(output.facts) == 2
@@ -84,7 +94,9 @@ def test_parse_failure_returns_empty_output() -> None:
 def test_conversation_summary_appears_in_prompt() -> None:
     llm = _FakeLLM([_valid_memory_json()])
     agent = MemoryAgent(llm=llm)
-    agent.run(MemoryInput(session_id="s1", conversation_summary="User asked about Python."))
+    agent.run(
+        MemoryInput(session_id="s1", conversation_summary="User asked about Python.")
+    )
 
     assert "User asked about Python." in llm.last_prompt
 

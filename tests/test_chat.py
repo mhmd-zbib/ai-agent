@@ -12,15 +12,15 @@ class FakeChatService:
     def __init__(self) -> None:
         self._history: dict[str, list[dict[str, str]]] = {}
 
-    def create_session(self):
+    def create_session(self, course_code: str = ""):
         session_id = str(uuid4())
         self._history.setdefault(session_id, [])
         return {"session_id": session_id}
 
-    def reply(self, payload, user_id: str = ""):
+    def reply(self, payload, user_id: str = "", university_name="LIU"):
         history = self._history.setdefault(payload.session_id, [])
-        history.append({"role": "user", "content": payload.message})
-        reply = f"echo: {payload.message}"
+        history.append({"role": "user", "content": payload.question})
+        reply = f"echo: {payload.question}"
         history.append({"role": "assistant", "content": reply})
         return {
             "session_id": payload.session_id,
@@ -31,7 +31,7 @@ class FakeChatService:
                 "confidence": 1.0,
                 "sources": None,
                 "timestamp": datetime.now(UTC).isoformat(),
-            }
+            },
         }
 
     def reset_session(self, session_id: str):
@@ -47,12 +47,19 @@ class FakeUserService:
     def get_user_from_token(self, token: str):
         if token != "good-token":
             raise AuthenticationError("Invalid or expired token.")
-        return UserOut(id="user-1", email="test@example.com")
+        return UserOut(
+            id="user-1",
+            email="test@example.com",
+            university="LIU",
+            major="COMPUTER_SCIENCE",
+        )
 
 
 class FakeToolActionChatService(FakeChatService):
-    def reply(self, payload, user_id: str = ""):
-        response = super().reply(payload, user_id=user_id)
+    def reply(self, payload, user_id: str = "", university_name="LIU"):
+        response = super().reply(
+            payload, user_id=user_id, university_name=university_name
+        )
         response["tool_action"] = {"tool_id": "weather", "params": {"city": "Beirut"}}
         return response
 
@@ -65,6 +72,7 @@ def test_chat_roundtrip() -> None:
 
     session_response = client.post(
         "/v1/agent/sessions",
+        json={"course_code": "CS101"},
         headers={"Authorization": "Bearer good-token"},
     )
     assert session_response.status_code == 201
@@ -72,7 +80,7 @@ def test_chat_roundtrip() -> None:
 
     first = client.post(
         "/v1/agent/chat",
-        json={"session_id": session_id, "message": "hello"},
+        json={"session_id": session_id, "question": "hello"},
         headers={"Authorization": "Bearer good-token"},
     )
     assert first.status_code == 200
@@ -86,7 +94,7 @@ def test_chat_roundtrip() -> None:
 
     second = client.post(
         "/v1/agent/chat",
-        json={"session_id": session_id, "message": "how are you?"},
+        json={"session_id": session_id, "question": "how are you?"},
         headers={"Authorization": "Bearer good-token"},
     )
     assert second.status_code == 200
@@ -103,13 +111,14 @@ def test_chat_hides_tool_action_when_service_returns_it() -> None:
 
     session_response = client.post(
         "/v1/agent/sessions",
+        json={"course_code": "CS101"},
         headers={"Authorization": "Bearer good-token"},
     )
     session_id = session_response.json()["session_id"]
 
     response = client.post(
         "/v1/agent/chat",
-        json={"session_id": session_id, "message": "hello"},
+        json={"session_id": session_id, "question": "hello"},
         headers={"Authorization": "Bearer good-token"},
     )
 
@@ -125,13 +134,14 @@ def test_reset_session() -> None:
 
     session_response = client.post(
         "/v1/agent/sessions",
+        json={"course_code": "CS101"},
         headers={"Authorization": "Bearer good-token"},
     )
     session_id = session_response.json()["session_id"]
 
     client.post(
         "/v1/agent/chat",
-        json={"session_id": session_id, "message": "hello"},
+        json={"session_id": session_id, "question": "hello"},
         headers={"Authorization": "Bearer good-token"},
     )
     response = client.delete(
@@ -149,5 +159,8 @@ def test_chat_requires_auth() -> None:
     app.state.user_service = FakeUserService()
     client = TestClient(app)
 
-    response = client.post("/v1/agent/chat", json={"session_id": "s1", "message": "hello"})
+    response = client.post(
+        "/v1/agent/chat",
+        json={"session_id": "s1", "question": "hello"},
+    )
     assert response.status_code == 401

@@ -1,6 +1,7 @@
 """
 MemoryAgent — extracts facts worth persisting across sessions (LLM).
 """
+
 from __future__ import annotations
 
 import json
@@ -29,7 +30,8 @@ class MemoryAgent:
     def run(self, input: MemoryInput) -> MemoryOutput:
         prompt = self._build_prompt(input)
         ai_response = self._llm.generate(
-            AgentInput(user_message=prompt, session_id=input.session_id, history=[])
+            AgentInput(user_message=prompt, session_id=input.session_id, history=[]),
+            response_mode="json",
         )
         raw_content = ai_response.content
         try:

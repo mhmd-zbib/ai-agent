@@ -8,7 +8,7 @@ from jwt import InvalidTokenError
 
 from app.modules.users.config import AuthConfig
 from app.modules.users.schemas.response import TokenResponse
-from app.modules.users.services.auth_interface import IAuthService
+from app.modules.users.services.auth_interface import IAuthService, TokenClaims
 from app.shared.exceptions import AuthenticationError
 
 
@@ -23,10 +23,13 @@ class AuthService(IAuthService):
     _CLAIM_SUBJECT: Final[str] = "sub"
     _CLAIM_ISSUED_AT: Final[str] = "iat"
     _CLAIM_EXPIRATION: Final[str] = "exp"
+    _CLAIM_UNIVERSITY: Final[str] = "university"
+    _CLAIM_MAJOR: Final[str] = "major"
 
     # Error Messages
     _ERROR_INVALID_TOKEN: Final[str] = "Invalid or expired token"
     _ERROR_MISSING_SUBJECT: Final[str] = "Token missing user identifier"
+    _ERROR_MISSING_CLAIMS: Final[str] = "Token missing required claims"
     _ERROR_INVALID_PASSWORD_HASH: Final[str] = "Invalid password hash format"
 
     def __init__(self, config: AuthConfig) -> None:
@@ -75,18 +78,20 @@ class AuthService(IAuthService):
             return bcrypt.checkpw(
                 prehashed, password_hash.encode(self._config.password_encoding)
             )
-        except (ValueError, AttributeError) as exc:
+        except (ValueError, AttributeError):
             # Log the error but don't expose details to caller
             # ValueError: invalid hash format
             # AttributeError: password_hash is None or invalid type
             return False
 
-    def create_token(self, user_id: str) -> TokenResponse:
+    def create_token(self, user_id: str, university: str, major: str) -> TokenResponse:
         """
         Create a JWT access token for a user.
 
         Args:
             user_id: Unique identifier for the user
+            university: Student's university enum value
+            major: Student's major enum value
 
         Returns:
             TokenResponse containing the JWT token
@@ -99,6 +104,8 @@ class AuthService(IAuthService):
 
         payload = {
             self._CLAIM_SUBJECT: user_id,
+            self._CLAIM_UNIVERSITY: university,
+            self._CLAIM_MAJOR: major,
             self._CLAIM_ISSUED_AT: int(now.timestamp()),
             self._CLAIM_EXPIRATION: int(expires_at.timestamp()),
         }
@@ -108,15 +115,15 @@ class AuthService(IAuthService):
         )
         return TokenResponse(access_token=token)
 
-    def decode_subject(self, token: str) -> str:
+    def decode_token(self, token: str) -> TokenClaims:
         """
-        Decode and validate a JWT token, extracting the user ID.
+        Decode and validate a JWT token, extracting user claims.
 
         Args:
             token: JWT token to decode
 
         Returns:
-            User ID (subject) from the token
+            TokenClaims with user_id, university, and major
 
         Raises:
             AuthenticationError: If token is invalid, expired, or malformed
@@ -134,7 +141,12 @@ class AuthService(IAuthService):
         if not isinstance(subject, str) or not subject:
             raise AuthenticationError(self._ERROR_MISSING_SUBJECT)
 
-        return subject
+        university = payload.get(self._CLAIM_UNIVERSITY)
+        major = payload.get(self._CLAIM_MAJOR)
+        if not isinstance(university, str) or not isinstance(major, str):
+            raise AuthenticationError(self._ERROR_MISSING_CLAIMS)
+
+        return TokenClaims(user_id=subject, university=university, major=major)
 
     def _prehash_password(self, password: str) -> bytes:
         """

@@ -25,9 +25,7 @@ class UserService:
     _ERROR_INVALID_TOKEN: Final[str] = "Invalid or expired token"
     _ERROR_USER_NOT_FOUND: Final[str] = "User not found"
 
-    def __init__(
-        self, repository: UserRepository, auth_service: IAuthService
-    ) -> None:
+    def __init__(self, repository: UserRepository, auth_service: IAuthService) -> None:
         """
         Initialize the user service.
 
@@ -43,7 +41,7 @@ class UserService:
         Register a new user.
 
         Args:
-            payload: User registration data (email and password)
+            payload: User registration data (email, password, university, major)
 
         Returns:
             UserOut with the created user's information
@@ -54,7 +52,12 @@ class UserService:
         password_hash = self._auth_service.hash_password(payload.password)
 
         try:
-            return self._repository.create(payload.email, password_hash)
+            return self._repository.create(
+                payload.email,
+                password_hash,
+                payload.university.value,
+                payload.major.value,
+            )
         except ValueError as exc:
             raise ConflictError(str(exc)) from exc
 
@@ -81,7 +84,7 @@ class UserService:
             raise AuthenticationError(self._ERROR_INVALID_CREDENTIALS)
 
         # Generate and return token
-        return self._auth_service.create_token(user.id)
+        return self._auth_service.create_token(user.id, user.university, user.major)
 
     def get_user_from_token(self, token: str) -> UserOut:
         """
@@ -96,9 +99,9 @@ class UserService:
         Raises:
             AuthenticationError: If token is invalid or user not found
         """
-        subject = self._auth_service.decode_subject(token)
+        claims = self._auth_service.decode_token(token)
 
-        user = self._repository.get_by_id(subject)
+        user = self._repository.get_by_id(claims.user_id)
         if user is None:
             raise AuthenticationError(self._ERROR_INVALID_TOKEN)
 

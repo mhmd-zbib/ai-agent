@@ -1,6 +1,7 @@
 """
 CritiqueAgent — fact-checks a draft answer against source chunks (LLM).
 """
+
 from __future__ import annotations
 
 import json
@@ -26,7 +27,8 @@ class CritiqueAgent:
     def run(self, input: CritiqueInput) -> CritiqueOutput:
         prompt = self._build_prompt(input)
         ai_response = self._llm.generate(
-            AgentInput(user_message=prompt, session_id=input.session_id, history=[])
+            AgentInput(user_message=prompt, session_id=input.session_id, history=[]),
+            response_mode="json",
         )
         raw_content = ai_response.content
         try:

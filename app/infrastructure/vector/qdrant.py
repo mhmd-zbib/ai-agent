@@ -24,7 +24,7 @@ Lazy collection creation
 import uuid
 from threading import Lock
 
-from app.infrastructure.vector.base import IVectorClient, VectorRecord
+from app.infrastructure.vector.base import VectorRecord
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
@@ -88,7 +88,9 @@ class QdrantVectorClient:
             if not self._client.collection_exists(self._collection):
                 self._client.create_collection(
                     collection_name=self._collection,
-                    vectors_config=VectorParams(size=self._dimension, distance=distance),
+                    vectors_config=VectorParams(
+                        size=self._dimension, distance=distance
+                    ),
                 )
                 logger.info(
                     "Qdrant collection created",
@@ -103,17 +105,53 @@ class QdrantVectorClient:
                     "Qdrant collection ready", extra={"collection": self._collection}
                 )
 
+            self._ensure_payload_indexes()
             self._ready = True
 
-    def _namespace_filter(self, namespace: str):
-        """Return a Qdrant Filter that restricts results to *namespace* (user_id)."""
-        if not namespace:
-            return None
+    def _ensure_payload_indexes(self) -> None:
+        """Create keyword payload indexes for course_code and university_name (idempotent)."""
+        from qdrant_client.models import PayloadSchemaType
+
+        for field_name in ("course_code", "university_name"):
+            try:
+                self._client.create_payload_index(
+                    collection_name=self._collection,
+                    field_name=field_name,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                logger.info(
+                    "Qdrant payload index created",
+                    extra={"collection": self._collection, "field": field_name},
+                )
+            except Exception as exc:
+                # Index already exists — Qdrant returns an error; safe to ignore.
+                if "already exists" in str(exc).lower():
+                    logger.debug(
+                        "Qdrant payload index already exists",
+                        extra={"collection": self._collection, "field": field_name},
+                    )
+                else:
+                    raise
+
+    def _build_filter(
+        self, namespace: str, payload_filter: dict[str, str] | None = None
+    ):
+        """Return a Qdrant Filter combining namespace (user_id) and extra payload conditions."""
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-        return Filter(
-            must=[FieldCondition(key="user_id", match=MatchValue(value=namespace))]
-        )
+        conditions = []
+        if namespace:
+            conditions.append(
+                FieldCondition(key="user_id", match=MatchValue(value=namespace))
+            )
+        if payload_filter:
+            for key, value in payload_filter.items():
+                conditions.append(
+                    FieldCondition(key=key, match=MatchValue(value=value))
+                )
+        if not conditions:
+            return None
+        return Filter(must=conditions)
 
     # ------------------------------------------------------------------
     # IVectorClient implementation
@@ -159,18 +197,21 @@ class QdrantVectorClient:
         filter: dict | None = None,
     ) -> list[dict]:
         self._ensure_collection()
+        query_filter = self._build_filter(namespace, payload_filter=filter)
         response = self._client.query_points(
             collection_name=self._collection,
             query=vector,
             limit=top_k,
-            query_filter=self._namespace_filter(namespace),
+            query_filter=query_filter,
             with_payload=True,
         )
         return [
             {
                 "id": (hit.payload or {}).get("_chunk_id", str(hit.id)),
                 "score": hit.score,
-                "metadata": {k: v for k, v in (hit.payload or {}).items() if k != "_chunk_id"},
+                "metadata": {
+                    k: v for k, v in (hit.payload or {}).items() if k != "_chunk_id"
+                },
             }
             for hit in response.points
         ]

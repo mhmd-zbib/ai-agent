@@ -52,7 +52,7 @@ def consume_forever() -> None:
 
     # Prefer EMBEDDING_API_KEY; fall back to OPENAI_API_KEY.
     # "not-needed" is valid when EMBEDDING_BASE_URL points to a local provider (Ollama).
-    api_key  = settings.embedding_api_key or settings.openai_api_key
+    api_key = settings.embedding_api_key or settings.openai_api_key
     base_url = settings.embedding_base_url
     if not api_key or (api_key == "not-needed" and not base_url):
         raise RuntimeError(

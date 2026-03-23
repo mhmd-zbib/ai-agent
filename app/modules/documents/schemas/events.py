@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.shared.enums import University
+
 
 class DocumentUploadedEvent(BaseModel):
     event_id: str = Field(description="Unique ID for this emitted event")
@@ -17,7 +19,14 @@ class DocumentUploadedEvent(BaseModel):
 
     bucket: str = Field(description="Target MinIO bucket")
     object_prefix: str = Field(description="Prefix that holds chunk objects")
-    manifest_key: str = Field(description="Manifest object key — worker reads this to locate chunks")
+    manifest_key: str = Field(
+        description="Manifest object key — worker reads this to locate chunks"
+    )
 
     chunk_count: int = Field(ge=0)
     total_size_bytes: int = Field(ge=0)
+
+    course_code: str = Field(description="Course code the document belongs to")
+    university_name: University = Field(
+        description="University the document belongs to"
+    )

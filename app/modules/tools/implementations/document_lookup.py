@@ -51,6 +51,8 @@ class DocumentLookupTool(BaseTool):
             file_name = meta.get("file_name", "unknown")
             score = hit.get("score", 0.0)
             if text:
-                chunks.append(f"[{i}] From '{file_name}' (relevance: {score:.3f}):\n{text}")
+                chunks.append(
+                    f"[{i}] From '{file_name}' (relevance: {score:.3f}):\n{text}"
+                )
 
         return "\n\n---\n\n".join(chunks) if chunks else "No relevant content found."

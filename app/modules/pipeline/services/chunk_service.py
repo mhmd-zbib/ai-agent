@@ -122,6 +122,8 @@ class ChunkService:
                     chunk_text=chunk.chunk_text,
                     source_page=chunk.source_page,
                     total_chunks=total_chunks,
+                    course_code=event.course_code,
+                    university_name=event.university_name,
                 )
                 for chunk in chunks
             ]

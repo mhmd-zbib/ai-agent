@@ -121,6 +121,8 @@ class ParseService:
                 parsed_text_key=parsed_text_key,
                 parsed_pages_key=parsed_pages_key,
                 total_pages=len(parsed.pages) if parsed.pages is not None else None,
+                course_code=event.course_code,
+                university_name=event.university_name,
             )
 
         except Exception as exc:

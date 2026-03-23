@@ -1,8 +1,13 @@
 import json
 from datetime import timedelta
 
-from app.modules.documents.schemas import UploadCompleteRequest, UploadInitiateRequest, ChunkInfo
+from app.modules.documents.schemas import (
+    UploadCompleteRequest,
+    UploadInitiateRequest,
+    ChunkInfo,
+)
 from app.modules.documents.services.document_service import DocumentService
+from app.shared.enums import University
 
 
 class _FakeStorage:
@@ -10,7 +15,9 @@ class _FakeStorage:
         self.objects: dict[str, bytes] = {}
         self.presigned_calls: list[str] = []
 
-    def upload_bytes(self, *, object_key: str, payload: bytes, content_type: str | None = None) -> None:  # noqa: ARG002
+    def upload_bytes(
+        self, *, object_key: str, payload: bytes, content_type: str | None = None
+    ) -> None:  # noqa: ARG002
         self.objects[object_key] = payload
 
     def presigned_put_url(self, *, object_key: str, expires: timedelta) -> str:  # noqa: ARG002
@@ -26,7 +33,9 @@ class _FakePublisher:
         self.payloads.append(payload)
 
 
-def _make_service(chunk_size: int = 4) -> tuple[DocumentService, _FakeStorage, _FakePublisher]:
+def _make_service(
+    chunk_size: int = 4,
+) -> tuple[DocumentService, _FakeStorage, _FakePublisher]:
     storage = _FakeStorage()
     publisher = _FakePublisher()
     service = DocumentService(
@@ -99,6 +108,8 @@ def test_complete_upload_writes_manifest_and_publishes_event() -> None:
                 ChunkInfo(chunk_index=1, size_bytes=4),
                 ChunkInfo(chunk_index=2, size_bytes=2),
             ],
+            course_code="CSC101",
+            university_name=University.LIU,
         ),
         user_id="user-1",
     )
@@ -121,3 +132,5 @@ def test_complete_upload_writes_manifest_and_publishes_event() -> None:
     assert event["manifest_key"] == init.object_prefix + "/manifest.json"
     assert event["chunk_count"] == 3
     assert event["total_size_bytes"] == 10
+    assert event["course_code"] == "CSC101"
+    assert event["university_name"] == "LIU"

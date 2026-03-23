@@ -3,8 +3,12 @@ import math
 from datetime import timedelta
 from uuid import uuid4
 
-from app.modules.documents.repositories.document_event_repository import IDocumentEventRepository
-from app.modules.documents.repositories.document_storage_repository import IDocumentStorageRepository
+from app.modules.documents.repositories.document_event_repository import (
+    IDocumentEventRepository,
+)
+from app.modules.documents.repositories.document_storage_repository import (
+    IDocumentStorageRepository,
+)
 from app.modules.documents.schemas import (
     ChunkInfo,
     ChunkUploadUrl,
@@ -14,7 +18,9 @@ from app.modules.documents.schemas import (
     UploadInitiateRequest,
     UploadInitiateResponse,
 )
-from app.modules.documents.repositories.document_record_repository import IDocumentRecordRepository
+from app.modules.documents.repositories.document_record_repository import (
+    IDocumentRecordRepository,
+)
 from app.shared.exceptions import UpstreamServiceError
 
 _PRESIGNED_URL_EXPIRY = timedelta(hours=1)
@@ -65,7 +71,9 @@ class DocumentService:
                 object_key=object_key,
                 expires=_PRESIGNED_URL_EXPIRY,
             )
-            chunks.append(ChunkUploadUrl(chunk_index=i, object_key=object_key, presigned_url=url))
+            chunks.append(
+                ChunkUploadUrl(chunk_index=i, object_key=object_key, presigned_url=url)
+            )
 
         return UploadInitiateResponse(
             upload_id=upload_id,
@@ -92,7 +100,9 @@ class DocumentService:
         object_prefix = f"documents/{upload_id}"
         manifest_key = f"{object_prefix}/manifest.json"
 
-        chunks_by_index: dict[int, ChunkInfo] = {c.chunk_index: c for c in request.chunks}
+        chunks_by_index: dict[int, ChunkInfo] = {
+            c.chunk_index: c for c in request.chunks
+        }
         chunk_count = len(chunks_by_index)
         total_size_bytes = sum(c.size_bytes for c in request.chunks)
         chunk_keys = [
@@ -142,12 +152,16 @@ class DocumentService:
             manifest_key=manifest_key,
             chunk_count=chunk_count,
             total_size_bytes=total_size_bytes,
+            course_code=request.course_code,
+            university_name=request.university_name,
         )
 
         try:
             self._event_publisher.publish_json(event.model_dump(mode="json"))
         except Exception as exc:  # pragma: no cover - defensive around broker libs
-            raise UpstreamServiceError("Failed to publish document upload event") from exc
+            raise UpstreamServiceError(
+                "Failed to publish document upload event"
+            ) from exc
 
         return UploadCompleteResponse(
             upload_id=upload_id,

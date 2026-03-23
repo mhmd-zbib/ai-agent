@@ -74,4 +74,3 @@ def test_validation_error_has_clean_response_shape() -> None:
             "request_id": "req-456",
         }
     }
-

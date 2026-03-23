@@ -40,7 +40,9 @@ class MinioStorageClient:
 
             self._bucket_ready = True
 
-    def upload_bytes(self, *, object_key: str, payload: bytes, content_type: str | None = None) -> None:
+    def upload_bytes(
+        self, *, object_key: str, payload: bytes, content_type: str | None = None
+    ) -> None:
         self._ensure_bucket()
         stream = BytesIO(payload)
         self._client.put_object(
@@ -51,7 +53,9 @@ class MinioStorageClient:
             content_type=content_type,
         )
 
-    def presigned_put_url(self, *, object_key: str, expires: timedelta = _PRESIGNED_EXPIRY) -> str:
+    def presigned_put_url(
+        self, *, object_key: str, expires: timedelta = _PRESIGNED_EXPIRY
+    ) -> str:
         self._ensure_bucket()
         return self._client.presigned_put_object(
             self._bucket_name,

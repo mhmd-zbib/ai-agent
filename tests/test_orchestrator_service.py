@@ -3,18 +3,20 @@ Unit tests for OrchestratorService.
 
 All sub-agents and the LLM are faked.
 """
+
 from __future__ import annotations
 
 import json
 from typing import Any, Literal, Optional
 
-import pytest
 
 from app.modules.agent.schemas.sub_agents import (
     ActionInput,
     ActionOutput,
     CritiqueInput,
     CritiqueOutput,
+    FormulaVerificationInput,
+    FormulaVerificationOutput,
     MemoryInput,
     MemoryOutput,
     OrchestratorInput,
@@ -24,14 +26,7 @@ from app.modules.agent.schemas.sub_agents import (
     RetrievalOutput,
     RetrievedChunk,
 )
-from app.modules.agent.agents.action_agent import ActionAgent
-from app.modules.agent.agents.critique_agent import CritiqueAgent
-from app.modules.agent.agents.memory_agent import MemoryAgent
-from app.modules.agent.agents.reasoning_agent import ReasoningAgent
-from app.modules.agent.agents.retrieval_agent import RetrievalAgent
 from app.modules.agent.services.orchestrator_service import OrchestratorService
-from app.modules.tools.base import BaseTool
-from app.modules.tools.registry import ToolRegistry
 from app.shared.llm.base import BaseLLM
 from app.shared.schemas import AgentInput, AIResponse
 
@@ -50,7 +45,7 @@ class _FakeLLM(BaseLLM):
     def generate(
         self,
         payload: AgentInput,
-        response_mode: Literal["chat", "tool_call"] = "chat",
+        response_mode: Literal["chat", "tool_call", "json"] = "chat",
         tools: Optional[list[dict[str, Any]]] = None,
     ) -> AIResponse:
         self.prompts.append(payload.user_message)
@@ -71,11 +66,15 @@ class _FakeRetrievalAgent:
 
     def run(self, input: RetrievalInput) -> RetrievalOutput:
         self.called = True
-        return RetrievalOutput(chunks=self._chunks, strategy_used="vector", query_used=input.query)
+        return RetrievalOutput(
+            chunks=self._chunks, strategy_used="vector", query_used=input.query
+        )
 
 
 class _FakeReasoningAgent:
-    def __init__(self, answer: str = "Reasoned answer.", confidence: float = 0.9) -> None:
+    def __init__(
+        self, answer: str = "Reasoned answer.", confidence: float = 0.9
+    ) -> None:
         self._answer = answer
         self._confidence = confidence
         self.called = False
@@ -85,7 +84,10 @@ class _FakeReasoningAgent:
         self.called = True
         self.last_input = input
         return ReasoningOutput(
-            answer=self._answer, steps=[], context_adequacy="sufficient", confidence=self._confidence
+            answer=self._answer,
+            steps=[],
+            context_adequacy="sufficient",
+            confidence=self._confidence,
         )
 
 
@@ -100,7 +102,9 @@ class _FakeCritiqueAgent:
             verdict=self._verdict,  # type: ignore[arg-type]
             confidence=0.9,
             verifications=[],
-            revision_instructions="Fix it." if self._verdict == "needs_revision" else "",
+            revision_instructions="Fix it."
+            if self._verdict == "needs_revision"
+            else "",
         )
 
 
@@ -131,13 +135,31 @@ class _FakeActionAgent:
         )
 
 
+class _FakeFormulaVerificationAgent:
+    def __init__(self, verdict: str = "verified") -> None:
+        self._verdict = verdict
+        self.called = False
+
+    def run(self, input: FormulaVerificationInput) -> FormulaVerificationOutput:
+        self.called = True
+        return FormulaVerificationOutput(
+            verdict=self._verdict,  # type: ignore[arg-type]
+            confidence=0.9,
+            explanation="ok",
+            corrected_formula=None,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _make_plan_json(*agent_names: str) -> str:
-    steps = [{"agent": name, "rationale": f"use {name}", "inputs": {}} for name in agent_names]
+    steps = [
+        {"agent": name, "rationale": f"use {name}", "inputs": {}}
+        for name in agent_names
+    ]
     return json.dumps({"steps": steps, "final_synthesis_note": ""})
 
 
@@ -149,17 +171,21 @@ def _make_orchestrator(
     critique_agent: _FakeCritiqueAgent | None = None,
     memory_agent: _FakeMemoryAgent | None = None,
     action_agent: _FakeActionAgent | None = None,
-) -> tuple[OrchestratorService, _FakeLLM]:
-    llm = _FakeLLM(plan_responses + [synthesis_response])
+    formula_verification_agent: _FakeFormulaVerificationAgent | None = None,
+) -> tuple[OrchestratorService, _FakeLLM, _FakeLLM]:
+    plan_llm = _FakeLLM(plan_responses)
+    synthesis_llm = _FakeLLM([synthesis_response])
     service = OrchestratorService(
-        llm=llm,
+        llm=plan_llm,
+        synthesis_llm=synthesis_llm,
         retrieval_agent=retrieval_agent or _FakeRetrievalAgent(),  # type: ignore[arg-type]
         reasoning_agent=reasoning_agent or _FakeReasoningAgent(),  # type: ignore[arg-type]
         critique_agent=critique_agent or _FakeCritiqueAgent(),  # type: ignore[arg-type]
         memory_agent=memory_agent or _FakeMemoryAgent(),  # type: ignore[arg-type]
         action_agent=action_agent or _FakeActionAgent(),  # type: ignore[arg-type]
+        formula_verification_agent=formula_verification_agent or _FakeFormulaVerificationAgent(),  # type: ignore[arg-type]
     )
-    return service, llm
+    return service, plan_llm, synthesis_llm
 
 
 def _input(message: str = "hello", session_id: str = "s1") -> OrchestratorInput:
@@ -173,7 +199,7 @@ def _input(message: str = "hello", session_id: str = "s1") -> OrchestratorInput:
 
 def test_reasoning_only_plan() -> None:
     reasoning = _FakeReasoningAgent(answer="Reasoned answer.")
-    service, llm = _make_orchestrator(
+    service, plan_llm, synthesis_llm = _make_orchestrator(
         plan_responses=[_make_plan_json("reasoning_agent")],
         synthesis_response="Final synthesized answer.",
         reasoning_agent=reasoning,
@@ -184,8 +210,9 @@ def test_reasoning_only_plan() -> None:
     assert reasoning.called
     assert output.answer == "Final synthesized answer."
     assert output.session_id == "s1"
-    # LLM called twice: planning + synthesis
-    assert llm.call_count == 2
+    # Planning LLM called once, synthesis LLM called once
+    assert plan_llm.call_count == 1
+    assert synthesis_llm.call_count == 1
 
 
 def test_retrieval_reasoning_critique_chain() -> None:
@@ -194,14 +221,16 @@ def test_retrieval_reasoning_critique_chain() -> None:
     reasoning = _FakeReasoningAgent(answer="Draft answer")
     critique = _FakeCritiqueAgent(verdict="approved")
 
-    service, _ = _make_orchestrator(
-        plan_responses=[_make_plan_json("retrieval_agent", "reasoning_agent", "critique_agent")],
+    service, _, _ = _make_orchestrator(
+        plan_responses=[
+            _make_plan_json("retrieval_agent", "reasoning_agent", "critique_agent")
+        ],
         retrieval_agent=retrieval,
         reasoning_agent=reasoning,
         critique_agent=critique,
     )
 
-    output = service.run(_input("document question"))
+    service.run(_input("document question"))
 
     assert retrieval.called
     assert reasoning.called
@@ -214,11 +243,17 @@ def test_retrieval_reasoning_critique_chain() -> None:
 
 def test_action_plan() -> None:
     action = _FakeActionAgent(result="Weather: sunny 25C", succeeded=True)
-    service, _ = _make_orchestrator(
+    service, _, _ = _make_orchestrator(
         plan_responses=[
             json.dumps(
                 {
-                    "steps": [{"agent": "action_agent", "rationale": "tool call", "inputs": {"tool_id": "weather"}}],
+                    "steps": [
+                        {
+                            "agent": "action_agent",
+                            "rationale": "tool call",
+                            "inputs": {"tool_id": "weather"},
+                        }
+                    ],
                     "final_synthesis_note": "",
                 }
             )
@@ -236,7 +271,7 @@ def test_action_plan() -> None:
 def test_fallback_on_bad_planning_json() -> None:
     """When planning LLM returns invalid JSON, service falls back to reasoning_agent."""
     reasoning = _FakeReasoningAgent(answer="Fallback reasoning.")
-    service, _ = _make_orchestrator(
+    service, _, _ = _make_orchestrator(
         plan_responses=["NOT VALID JSON AT ALL"],
         reasoning_agent=reasoning,
     )
@@ -250,7 +285,7 @@ def test_fallback_on_bad_planning_json() -> None:
 def test_critique_skipped_if_no_reasoning_output() -> None:
     """If reasoning_agent is absent from plan and critique_agent is present, it is skipped."""
     critique = _FakeCritiqueAgent(verdict="needs_revision")
-    service, _ = _make_orchestrator(
+    service, _, _ = _make_orchestrator(
         # Plan only has critique (no reasoning first — guard should fire)
         plan_responses=[_make_plan_json("critique_agent")],
         critique_agent=critique,
@@ -266,7 +301,7 @@ def test_critique_skipped_if_no_reasoning_output() -> None:
 
 
 def test_correct_session_id_in_output() -> None:
-    service, _ = _make_orchestrator(
+    service, _, _ = _make_orchestrator(
         plan_responses=[_make_plan_json("reasoning_agent")],
     )
     output = service.run(_input(session_id="session-xyz"))
@@ -275,7 +310,7 @@ def test_correct_session_id_in_output() -> None:
 
 
 def test_agent_trace_populated() -> None:
-    service, _ = _make_orchestrator(
+    service, _, _ = _make_orchestrator(
         plan_responses=[_make_plan_json("reasoning_agent")],
     )
     output = service.run(_input())
@@ -286,7 +321,7 @@ def test_agent_trace_populated() -> None:
 
 def test_confidence_taken_from_reasoning_output() -> None:
     reasoning = _FakeReasoningAgent(answer="Precise answer.", confidence=0.77)
-    service, _ = _make_orchestrator(
+    service, _, _ = _make_orchestrator(
         plan_responses=[_make_plan_json("reasoning_agent")],
         reasoning_agent=reasoning,
     )
@@ -300,21 +335,43 @@ def test_needs_revision_synthesis_includes_revision_instructions() -> None:
     """When critique returns needs_revision, synthesis prompt should include revision instructions."""
     reasoning = _FakeReasoningAgent(answer="Wrong draft.")
     critique = _FakeCritiqueAgent(verdict="needs_revision")
-    llm = _FakeLLM(
-        [_make_plan_json("reasoning_agent", "critique_agent"), "Revised final answer."]
-    )
+    plan_llm = _FakeLLM([_make_plan_json("reasoning_agent", "critique_agent")])
+    synthesis_llm = _FakeLLM(["Revised final answer."])
     service = OrchestratorService(
-        llm=llm,
+        llm=plan_llm,
+        synthesis_llm=synthesis_llm,
         retrieval_agent=_FakeRetrievalAgent(),  # type: ignore[arg-type]
         reasoning_agent=reasoning,  # type: ignore[arg-type]
         critique_agent=critique,  # type: ignore[arg-type]
         memory_agent=_FakeMemoryAgent(),  # type: ignore[arg-type]
         action_agent=_FakeActionAgent(),  # type: ignore[arg-type]
+        formula_verification_agent=_FakeFormulaVerificationAgent(),  # type: ignore[arg-type]
     )
 
     output = service.run(_input("question"))
 
     # Synthesis prompt should mention revision instructions
-    synthesis_prompt = llm.prompts[-1]
+    synthesis_prompt = synthesis_llm.prompts[-1]
     assert "revision" in synthesis_prompt.lower() or "Fix it." in synthesis_prompt
     assert output.answer == "Revised final answer."
+
+
+def test_plan_with_agents_key_alias() -> None:
+    """LLM returns {"agents": [...]} instead of {"steps": [...]} — should still run."""
+    reasoning = _FakeReasoningAgent(answer="Alias answer.")
+    plan_json = json.dumps(
+        {
+            "agents": [
+                {"name": "reasoning_agent", "rationale": "reason it", "parameters": {}}
+            ]
+        }
+    )
+    service, _, _ = _make_orchestrator(
+        plan_responses=[plan_json],
+        reasoning_agent=reasoning,
+    )
+
+    output = service.run(_input("alias question"))
+
+    assert reasoning.called
+    assert output.answer != ""

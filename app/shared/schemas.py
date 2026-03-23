@@ -15,19 +15,18 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class ToolAction(BaseModel):
     """
     Represents a tool or action to be executed.
-    
+
     Attributes:
         tool_id: Unique identifier for the tool/action to execute
         params: Dictionary of parameters required for the tool execution
     """
-    
+
     tool_id: str = Field(..., description="Unique identifier for the tool to execute")
     params: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Parameters required for tool execution"
+        default_factory=dict, description="Parameters required for tool execution"
     )
-    
-    @field_validator('tool_id')
+
+    @field_validator("tool_id")
     @classmethod
     def validate_tool_id(cls, v: str) -> str:
         """Ensure tool_id is not empty."""
@@ -39,29 +38,25 @@ class ToolAction(BaseModel):
 class ResponseMetadata(BaseModel):
     """
     Metadata about the AI response.
-    
+
     Attributes:
         confidence: Confidence score between 0 and 1 indicating certainty
         sources: Optional list of data sources or APIs used
         timestamp: ISO 8601 timestamp when the response was generated
     """
-    
+
     confidence: float = Field(
-        default=0.9,
-        ge=0.0,
-        le=1.0,
-        description="Confidence score between 0 and 1"
+        default=0.9, ge=0.0, le=1.0, description="Confidence score between 0 and 1"
     )
     sources: Optional[List[str]] = Field(
-        default_factory=list,
-        description="List of sources or APIs consulted"
+        default_factory=list, description="List of sources or APIs consulted"
     )
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
-        description="ISO 8601 timestamp of response generation"
+        description="ISO 8601 timestamp of response generation",
     )
-    
-    @field_validator('confidence')
+
+    @field_validator("confidence")
     @classmethod
     def validate_confidence(cls, v: float) -> float:
         """Ensure confidence is within valid range."""
@@ -73,17 +68,17 @@ class ResponseMetadata(BaseModel):
 class AIResponse(BaseModel):
     """
     Standardized JSON response structure for AI agent interactions.
-    
+
     This model ensures all AI responses follow a consistent format,
     making it easier for clients to parse and handle responses.
-    
+
     Attributes:
-        type: Type of response - "text" (explanation only), 
+        type: Type of response - "text" (explanation only),
               "tool" (action required), or "mixed" (both)
         content: Human-readable explanation or summary of the response
         tool_action: Optional tool/action to execute if type is "tool" or "mixed"
         metadata: Additional metadata about the response including confidence and sources
-    
+
     Example:
         {
             "type": "tool",
@@ -99,41 +94,38 @@ class AIResponse(BaseModel):
             }
         }
     """
-    
+
     type: Literal["text", "tool", "mixed"] = Field(
-        ...,
-        description="Response type: text, tool, or mixed"
+        ..., description="Response type: text, tool, or mixed"
     )
     content: str = Field(
-        ...,
-        min_length=1,
-        description="Human-readable explanation or summary"
+        ..., min_length=1, description="Human-readable explanation or summary"
     )
     tool_action: Optional[ToolAction] = Field(
         default=None,
-        description="Tool action to execute (required if type is 'tool' or 'mixed')"
+        description="Tool action to execute (required if type is 'tool' or 'mixed')",
     )
     metadata: ResponseMetadata = Field(
         default_factory=ResponseMetadata,
-        description="Response metadata including confidence and sources"
+        description="Response metadata including confidence and sources",
     )
-    
-    @model_validator(mode='after')
-    def validate_tool_action(self) -> 'AIResponse':
+
+    @model_validator(mode="after")
+    def validate_tool_action(self) -> "AIResponse":
         """
         Validate that tool_action is present when type requires it.
-        
+
         For 'tool' and 'mixed' types, tool_action must be provided.
         For 'text' type, tool_action should be None.
         """
-        if self.type in ('tool', 'mixed') and self.tool_action is None:
+        if self.type in ("tool", "mixed") and self.tool_action is None:
             raise ValueError(f"tool_action is required when type is '{self.type}'")
-        
-        if self.type == 'text' and self.tool_action is not None:
+
+        if self.type == "text" and self.tool_action is not None:
             raise ValueError("tool_action must be None when type is 'text'")
-        
+
         return self
-    
+
     model_config = {
         "json_schema_extra": {
             "examples": [
@@ -144,22 +136,22 @@ class AIResponse(BaseModel):
                     "metadata": {
                         "confidence": 0.98,
                         "sources": ["weather_cache"],
-                        "timestamp": "2024-03-20T10:30:00Z"
-                    }
+                        "timestamp": "2024-03-20T10:30:00Z",
+                    },
                 },
                 {
                     "type": "tool",
                     "content": "Fetching current weather data for London",
                     "tool_action": {
                         "tool_id": "weather_api",
-                        "params": {"city": "London", "units": "metric"}
+                        "params": {"city": "London", "units": "metric"},
                     },
                     "metadata": {
                         "confidence": 0.95,
                         "sources": ["weather_api"],
-                        "timestamp": "2024-03-20T10:30:00Z"
-                    }
-                }
+                        "timestamp": "2024-03-20T10:30:00Z",
+                    },
+                },
             ]
         }
     }
@@ -168,6 +160,7 @@ class AIResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Agent input schema (shared between agent and chat modules)
 # ---------------------------------------------------------------------------
+
 
 class AgentInput(BaseModel):
     user_message: str = Field(min_length=1, max_length=8000)

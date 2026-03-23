@@ -1,6 +1,7 @@
 """
 Pydantic input/output models for all sub-agents and the orchestrator.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -31,6 +32,8 @@ class RetrievalInput(BaseModel):
     top_k: int = 5
     filters: dict[str, str] = Field(default_factory=dict)
     strategy: Literal["vector", "keyword", "hybrid"] = "vector"
+    course_code: str = ""
+    university_name: str = ""
 
 
 class RetrievalOutput(BaseModel):
@@ -48,6 +51,7 @@ class ReasoningInput(BaseModel):
     question: str
     chunks: list[RetrievedChunk] = Field(default_factory=list)
     session_id: str = ""
+    history: list[dict[str, str]] = Field(default_factory=list)
 
 
 class ReasoningStep(BaseModel):
@@ -130,6 +134,26 @@ class ActionOutput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# FormulaVerificationAgent I/O
+# ---------------------------------------------------------------------------
+
+
+class FormulaVerificationInput(BaseModel):
+    session_id: str = ""
+    problem: str
+    formula: str
+    variables: dict[str, float] = Field(default_factory=dict)
+    context_chunks: list[RetrievedChunk] = Field(default_factory=list)
+
+
+class FormulaVerificationOutput(BaseModel):
+    verdict: Literal["verified", "needs_revision"]
+    confidence: float = Field(default=0.9, ge=0.0, le=1.0)
+    explanation: str = ""
+    corrected_formula: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator I/O
 # ---------------------------------------------------------------------------
 
@@ -141,6 +165,7 @@ class AgentStep(BaseModel):
         "critique_agent",
         "memory_agent",
         "action_agent",
+        "formula_verification_agent",
     ]
     rationale: str
     inputs: dict[str, object] = Field(default_factory=dict)
@@ -159,6 +184,8 @@ class OrchestratorInput(BaseModel):
     history: list[dict[str, str]] = Field(default_factory=list)
     user_id: str = ""
     use_retrieval: bool = False
+    course_code: str = ""
+    university_name: str = ""
 
 
 class OrchestratorOutput(BaseModel):
@@ -176,6 +203,8 @@ __all__ = [
     "CritiqueInput",
     "CritiqueOutput",
     "ExtractedFact",
+    "FormulaVerificationInput",
+    "FormulaVerificationOutput",
     "MemoryInput",
     "MemoryOutput",
     "OrchestratorInput",

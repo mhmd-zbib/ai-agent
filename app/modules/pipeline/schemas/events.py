@@ -13,6 +13,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.shared.enums import University
+
 
 class ParsedEvent(BaseModel):
     """Published by the parse worker to chunk.queue after successful parsing."""
@@ -40,6 +42,11 @@ class ParsedEvent(BaseModel):
         default=None, description="Page count for PDFs; None otherwise"
     )
 
+    course_code: str = Field(description="Course code the document belongs to")
+    university_name: University = Field(
+        description="University the document belongs to"
+    )
+
 
 class ChunkEvent(BaseModel):
     """
@@ -62,6 +69,11 @@ class ChunkEvent(BaseModel):
     source_page: int | None = None
     total_chunks: int = Field(
         ge=1, description="Total number of chunks produced for this document"
+    )
+
+    course_code: str = Field(description="Course code the document belongs to")
+    university_name: University = Field(
+        description="University the document belongs to"
     )
 
 
@@ -88,6 +100,11 @@ class EmbedEvent(BaseModel):
     total_chunks: int = Field(ge=1)
 
     vector: list[float] = Field(description="Embedding vector")
+
+    course_code: str = Field(description="Course code the document belongs to")
+    university_name: University = Field(
+        description="University the document belongs to"
+    )
 
 
 class StoredEvent(BaseModel):

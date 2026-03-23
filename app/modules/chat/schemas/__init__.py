@@ -1,4 +1,4 @@
-from app.modules.chat.schemas.request import ChatRequest
+from app.modules.chat.schemas.request import ChatRequest, SessionCreateRequest
 from app.modules.chat.schemas.response import (
     ChatResponse,
     SessionCreateResponse,
@@ -8,6 +8,7 @@ from app.modules.chat.schemas.response import (
 
 __all__ = [
     "ChatRequest",
+    "SessionCreateRequest",
     "SessionCreateResponse",
     "ChatResponse",
     "StreamChunk",

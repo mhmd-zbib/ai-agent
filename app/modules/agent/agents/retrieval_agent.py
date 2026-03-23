@@ -4,6 +4,7 @@ RetrievalAgent — orchestrates retrieval strategies (vector/keyword/hybrid).
 Delegates actual vector search to RAGService; keyword search is a stub
 pending BM25 integration.
 """
+
 from __future__ import annotations
 
 from app.modules.agent.schemas.sub_agents import (
@@ -50,7 +51,13 @@ class RetrievalAgent:
             return []
         try:
             results = self._rag_service.search(
-                SearchQuery(text=input.query, top_k=input.top_k, user_id=input.user_id)
+                SearchQuery(
+                    text=input.query,
+                    top_k=input.top_k,
+                    user_id=input.user_id,
+                    course_code=input.course_code,
+                    university_name=input.university_name,
+                )
             )
             return [
                 RetrievedChunk(
@@ -70,5 +77,7 @@ class RetrievalAgent:
 
     def _keyword_search(self, input: RetrievalInput) -> list[RetrievedChunk]:
         # Stub: no BM25 yet — graceful degradation
-        logger.debug("Keyword search stub: returning empty results", extra={"query": input.query})
+        logger.debug(
+            "Keyword search stub: returning empty results", extra={"query": input.query}
+        )
         return []

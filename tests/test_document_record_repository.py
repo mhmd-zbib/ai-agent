@@ -6,19 +6,28 @@ Verifies that:
 - complete_upload() calls create_document() on the injected repo
 - The protocol is satisfied by duck typing (no base class required)
 """
-import json
+
 from datetime import timedelta
 
-from app.modules.documents.repositories.document_record_repository import IDocumentRecordRepository
-from app.modules.documents.schemas import ChunkInfo, UploadCompleteRequest, UploadInitiateRequest
+from app.modules.documents.repositories.document_record_repository import (
+    IDocumentRecordRepository,
+)
+from app.modules.documents.schemas import (
+    ChunkInfo,
+    UploadCompleteRequest,
+    UploadInitiateRequest,
+)
 from app.modules.documents.services.document_service import DocumentService
+from app.shared.enums import University
 
 
 class _FakeStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
 
-    def upload_bytes(self, *, object_key: str, payload: bytes, content_type: str | None = None) -> None:
+    def upload_bytes(
+        self, *, object_key: str, payload: bytes, content_type: str | None = None
+    ) -> None:
         self.objects[object_key] = payload
 
     def presigned_put_url(self, *, object_key: str, expires: timedelta) -> str:
@@ -62,7 +71,7 @@ def test_complete_upload_calls_create_document_on_record_repo() -> None:
 
     init = service.initiate_upload(
         request=UploadInitiateRequest(
-            file_name="test.txt",
+            file_name="matar.txt",
             content_type="text/plain",
             file_size_bytes=8,
         ),
@@ -72,12 +81,14 @@ def test_complete_upload_calls_create_document_on_record_repo() -> None:
     service.complete_upload(
         upload_id=init.upload_id,
         request=UploadCompleteRequest(
-            file_name="test.txt",
+            file_name="matar.txt",
             content_type="text/plain",
             chunks=[
                 ChunkInfo(chunk_index=0, size_bytes=4),
                 ChunkInfo(chunk_index=1, size_bytes=4),
             ],
+            course_code="CSC101",
+            university_name=University.LIU,
         ),
         user_id="user-99",
     )
@@ -86,7 +97,7 @@ def test_complete_upload_calls_create_document_on_record_repo() -> None:
     call = record_repo.created[0]
     assert call["upload_id"] == init.upload_id
     assert call["user_id"] == "user-99"
-    assert call["file_name"] == "test.txt"
+    assert call["file_name"] == "matar.txt"
     assert call["upload_chunk_count"] == 2
     assert call["total_size_bytes"] == 8
 
@@ -110,6 +121,8 @@ def test_complete_upload_works_without_record_repo() -> None:
             file_name="file.txt",
             content_type="text/plain",
             chunks=[ChunkInfo(chunk_index=0, size_bytes=4)],
+            course_code="CSC201",
+            university_name=University.AUB,
         ),
         user_id=None,
     )
@@ -120,7 +133,6 @@ def test_complete_upload_works_without_record_repo() -> None:
 
 def test_ifilerecord_repository_protocol_accepts_duck_typed_impl() -> None:
     """Structural check: our fake satisfies the protocol without explicit base class."""
-    from typing import runtime_checkable, Protocol
     # The protocol is not runtime-checkable by default, but we can verify
     # that the fake has the required method signature by calling it directly.
     repo: IDocumentRecordRepository = _FakeDocumentRecordRepository()  # type: ignore[assignment]

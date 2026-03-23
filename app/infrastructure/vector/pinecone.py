@@ -79,7 +79,9 @@ class PineconeVectorClient:
             self._index = pc.Index(self._index_name)
             logger.info("Pinecone index ready", extra={"index": self._index_name})
 
-    def _wait_until_ready(self, pc, poll_interval: float = 1.0, timeout: float = 120.0) -> None:
+    def _wait_until_ready(
+        self, pc, poll_interval: float = 1.0, timeout: float = 120.0
+    ) -> None:
         """Block until the index status is ``ready`` or timeout is reached."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

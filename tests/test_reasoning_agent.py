@@ -1,12 +1,12 @@
 """
 Unit tests for ReasoningAgent.
 """
+
 from __future__ import annotations
 
 import json
 from typing import Any, Literal, Optional
 
-import pytest
 
 from app.modules.agent.schemas.sub_agents import ReasoningInput, RetrievedChunk
 from app.modules.agent.agents.reasoning_agent import ReasoningAgent
@@ -51,7 +51,9 @@ def _make_agent(responses: list[str]) -> tuple[ReasoningAgent, _FakeLLM]:
     return ReasoningAgent(llm=llm), llm
 
 
-def _valid_json(answer: str = "Paris", adequacy: str = "sufficient", confidence: float = 0.95) -> str:
+def _valid_json(
+    answer: str = "Paris", adequacy: str = "sufficient", confidence: float = 0.95
+) -> str:
     return json.dumps(
         {
             "answer": answer,
@@ -79,7 +81,9 @@ def test_parses_valid_json_response() -> None:
 
 
 def test_insufficient_context_flag() -> None:
-    agent, _ = _make_agent([_valid_json("Unknown", adequacy="insufficient", confidence=0.3)])
+    agent, _ = _make_agent(
+        [_valid_json("Unknown", adequacy="insufficient", confidence=0.3)]
+    )
     output = agent.run(ReasoningInput(question="What is X?", session_id="s1"))
 
     assert output.context_adequacy == "insufficient"
@@ -100,7 +104,9 @@ def test_invalid_json_fallback() -> None:
 def test_chunks_appear_in_prompt() -> None:
     agent, llm = _make_agent([_valid_json()])
     chunks = [_chunk("c1", "France is in Europe"), _chunk("c2", "Paris is its capital")]
-    agent.run(ReasoningInput(question="Capital of France?", chunks=chunks, session_id="s1"))
+    agent.run(
+        ReasoningInput(question="Capital of France?", chunks=chunks, session_id="s1")
+    )
 
     assert "c1" in llm.last_prompt
     assert "France is in Europe" in llm.last_prompt

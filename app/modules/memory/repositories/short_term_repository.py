@@ -14,11 +14,11 @@ logger = get_logger(__name__)
 
 class ShortTermRepository:
     """Redis-based repository for short-term message caching with automatic TTL."""
-    
+
     def __init__(self, redis_client: Redis, ttl_seconds: int) -> None:
         """
         Initialize the short-term repository.
-        
+
         Args:
             redis_client: Redis client with connection pooling enabled
             ttl_seconds: Time-to-live for cached messages
@@ -50,10 +50,10 @@ class ShortTermRepository:
     def get_messages(self, session_id: str) -> list[MemoryEntry] | None:
         """
         Retrieve cached messages for a session.
-        
+
         Args:
             session_id: Unique session identifier
-            
+
         Returns:
             List of messages if cached, None if not found or on error
         """
@@ -90,11 +90,11 @@ class ShortTermRepository:
     def set_messages(self, session_id: str, messages: list[MemoryEntry]) -> bool:
         """
         Cache messages for a session with TTL.
-        
+
         Args:
             session_id: Unique session identifier
             messages: List of messages to cache
-            
+
         Returns:
             True if successfully cached, False otherwise
         """
@@ -126,10 +126,10 @@ class ShortTermRepository:
     def delete_messages(self, session_id: str) -> bool:
         """
         Delete cached messages for a session.
-        
+
         Args:
             session_id: Unique session identifier
-            
+
         Returns:
             True if successfully deleted, False otherwise
         """

@@ -75,7 +75,9 @@ class WeatherTool(BaseTool):
         )
 
     def _resolve_city(self, city: str) -> tuple[float | None, float | None, str]:
-        geo_params = urlencode({"name": city, "count": 1, "language": "en", "format": "json"})
+        geo_params = urlencode(
+            {"name": city, "count": 1, "language": "en", "format": "json"}
+        )
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?{geo_params}"
 
         try:
@@ -120,4 +122,3 @@ class WeatherTool(BaseTool):
         if isinstance(code, int):
             return mapping.get(code, "Unknown conditions")
         return "Unknown conditions"
-

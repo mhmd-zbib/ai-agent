@@ -42,6 +42,7 @@ logger = get_logger(__name__)
 # Status constants
 # ---------------------------------------------------------------------------
 
+
 class DocumentStatus:
     UPLOADED = "uploaded"
     PARSING = "parsing"
@@ -57,6 +58,7 @@ class DocumentStatus:
 # ---------------------------------------------------------------------------
 # Protocol
 # ---------------------------------------------------------------------------
+
 
 class IDocumentStatusRepository(Protocol):
     def ensure_schema(self) -> None: ...
@@ -102,6 +104,7 @@ class IDocumentStatusRepository(Protocol):
 # ---------------------------------------------------------------------------
 # Implementation
 # ---------------------------------------------------------------------------
+
 
 class DocumentStatusRepository:
     def __init__(self, engine: Engine) -> None:

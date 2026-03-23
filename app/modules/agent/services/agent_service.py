@@ -39,7 +39,9 @@ class AgentService:
             },
         )
 
-        ai_response = self._llm.generate(agent_input, response_mode=response_mode, tools=tools)
+        ai_response = self._llm.generate(
+            agent_input, response_mode=response_mode, tools=tools
+        )
 
         logger.info(
             "Generated AI response",
@@ -48,16 +50,22 @@ class AgentService:
                 "response_type": ai_response.type,
                 "response_mode": response_mode,
                 "has_tool_action": ai_response.tool_action is not None,
-                "confidence": ai_response.metadata.confidence if ai_response.metadata else None,
+                "confidence": ai_response.metadata.confidence
+                if ai_response.metadata
+                else None,
             },
         )
 
         had_tool_action = ai_response.tool_action is not None
-        ai_response, tool_succeeded = self._execute_tool_action(agent_input.session_id, ai_response, user_id)
+        ai_response, tool_succeeded = self._execute_tool_action(
+            agent_input.session_id, ai_response, user_id
+        )
 
         if had_tool_action and tool_succeeded:
             try:
-                ai_response.content = self._synthesize_followup(agent_input, ai_response.content)
+                ai_response.content = self._synthesize_followup(
+                    agent_input, ai_response.content
+                )
             except Exception as exc:
                 logger.warning(
                     "Follow-up synthesis failed; falling back to tool response",
@@ -73,7 +81,9 @@ class AgentService:
     def _resolve_response_mode(self) -> Literal["chat", "tool_call"]:
         return "chat"
 
-    def _format_user_content(self, ai_response: AIResponse, tool_result: str | None = None) -> str:
+    def _format_user_content(
+        self, ai_response: AIResponse, tool_result: str | None = None
+    ) -> str:
         if tool_result is None:
             return ai_response.content
 
@@ -89,7 +99,9 @@ class AgentService:
 
         return ai_response.content
 
-    def _execute_tool_action(self, session_id: str, ai_response: AIResponse, user_id: str = "") -> tuple[AIResponse, bool]:
+    def _execute_tool_action(
+        self, session_id: str, ai_response: AIResponse, user_id: str = ""
+    ) -> tuple[AIResponse, bool]:
         """Execute the requested tool and return (updated_response, succeeded).
 
         Returns succeeded=False when the tool is missing or raises, so the
@@ -125,7 +137,9 @@ class AgentService:
             ai_response.content = self._format_user_content(ai_response, tool_result)
             # Treat upstream service errors as failed: error message is already
             # user-friendly, no need for a followup LLM call.
-            tool_succeeded = not tool_result.startswith("Weather service is currently unavailable")
+            tool_succeeded = not tool_result.startswith(
+                "Weather service is currently unavailable"
+            )
             return ai_response, tool_succeeded
         except KeyError as exc:
             logger.error(
@@ -150,7 +164,9 @@ class AgentService:
             ai_response.content = "Sorry, I hit an error while processing that request."
             return ai_response, False
 
-    def _synthesize_followup(self, agent_input: AgentInput, tool_observation: str) -> str:
+    def _synthesize_followup(
+        self, agent_input: AgentInput, tool_observation: str
+    ) -> str:
         """Ask the LLM to synthesize a final prose answer from tool results."""
         followup_history = list(agent_input.history)
         followup_history.append({"role": "user", "content": agent_input.user_message})
@@ -170,7 +186,9 @@ class AgentService:
             session_id=agent_input.session_id,
             history=followup_history,
         )
-        followup_response = self._llm.generate(followup_input, response_mode="chat", tools=[])
+        followup_response = self._llm.generate(
+            followup_input, response_mode="chat", tools=[]
+        )
         return followup_response.content.strip() or tool_observation
 
     def _finalize(self, ai_response: AIResponse) -> AIResponse:

@@ -29,4 +29,3 @@ class DateTimeNowTool(BaseTool):
 
         now_utc = datetime.now(UTC)
         return f"UTC time: {now_utc.isoformat()}"
-

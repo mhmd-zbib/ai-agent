@@ -1,12 +1,12 @@
 """
 Unit tests for CritiqueAgent.
 """
+
 from __future__ import annotations
 
 import json
 from typing import Any, Literal, Optional
 
-import pytest
 
 from app.modules.agent.schemas.sub_agents import CritiqueInput, RetrievedChunk
 from app.modules.agent.agents.critique_agent import CritiqueAgent

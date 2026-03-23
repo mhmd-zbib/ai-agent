@@ -3,6 +3,17 @@ from abc import ABC, abstractmethod
 from app.modules.users.schemas.response import TokenResponse
 
 
+class TokenClaims:
+    """Decoded JWT claims containing user identity and profile fields."""
+
+    __slots__ = ("user_id", "university", "major")
+
+    def __init__(self, user_id: str, university: str, major: str) -> None:
+        self.user_id = user_id
+        self.university = university
+        self.major = major
+
+
 class IAuthService(ABC):
     """
     Interface for authentication services.
@@ -20,11 +31,11 @@ class IAuthService(ABC):
         pass
 
     @abstractmethod
-    def create_token(self, user_id: str) -> TokenResponse:
+    def create_token(self, user_id: str, university: str, major: str) -> TokenResponse:
         """Create an access token for a user."""
         pass
 
     @abstractmethod
-    def decode_subject(self, token: str) -> str:
-        """Decode and validate a token, returning the user ID (subject)."""
+    def decode_token(self, token: str) -> TokenClaims:
+        """Decode and validate a token, returning claims."""
         pass

@@ -8,6 +8,7 @@ Verifies that:
 - ConfigurationError is raised when no client is provided
 - OpenAIEmbeddingClient satisfies IEmbeddingClient (has embed + embed_batch)
 """
+
 import pytest
 
 from app.shared.protocols import IEmbeddingClient
@@ -20,6 +21,7 @@ from app.shared.exceptions import ConfigurationError
 # ---------------------------------------------------------------------------
 # Fake IEmbeddingClient — no inheritance from OpenAIEmbeddingClient
 # ---------------------------------------------------------------------------
+
 
 class _FakeEmbeddingClient:
     """In-memory embedding client that satisfies IEmbeddingClient by duck typing."""
@@ -42,9 +44,12 @@ class _FakeEmbeddingClient:
 # Basic delegation tests
 # ---------------------------------------------------------------------------
 
+
 def test_generate_embedding_delegates_to_client() -> None:
     client = _FakeEmbeddingClient(dim=3)
-    service = EmbeddingService(client=client, config=EmbeddingConfig(cache_enabled=False))
+    service = EmbeddingService(
+        client=client, config=EmbeddingConfig(cache_enabled=False)
+    )
 
     vector = service.generate_embedding("hello world")
 
@@ -54,7 +59,9 @@ def test_generate_embedding_delegates_to_client() -> None:
 
 def test_generate_embedding_batch_delegates_to_client() -> None:
     client = _FakeEmbeddingClient(dim=3)
-    service = EmbeddingService(client=client, config=EmbeddingConfig(cache_enabled=False))
+    service = EmbeddingService(
+        client=client, config=EmbeddingConfig(cache_enabled=False)
+    )
 
     vectors = service.generate_embeddings_batch(["text one", "text two"])
 
@@ -67,9 +74,12 @@ def test_generate_embedding_batch_delegates_to_client() -> None:
 # Cache behaviour
 # ---------------------------------------------------------------------------
 
+
 def test_cache_hit_avoids_client_call() -> None:
     client = _FakeEmbeddingClient()
-    service = EmbeddingService(client=client, config=EmbeddingConfig(cache_enabled=True))
+    service = EmbeddingService(
+        client=client, config=EmbeddingConfig(cache_enabled=True)
+    )
 
     # First call — cache miss
     service.generate_embedding("cached text")
@@ -81,7 +91,9 @@ def test_cache_hit_avoids_client_call() -> None:
 
 def test_cache_size_reflects_stored_embeddings() -> None:
     client = _FakeEmbeddingClient()
-    service = EmbeddingService(client=client, config=EmbeddingConfig(cache_enabled=True))
+    service = EmbeddingService(
+        client=client, config=EmbeddingConfig(cache_enabled=True)
+    )
 
     service.generate_embedding("text a")
     service.generate_embedding("text b")
@@ -91,7 +103,9 @@ def test_cache_size_reflects_stored_embeddings() -> None:
 
 def test_clear_cache_resets_size() -> None:
     client = _FakeEmbeddingClient()
-    service = EmbeddingService(client=client, config=EmbeddingConfig(cache_enabled=True))
+    service = EmbeddingService(
+        client=client, config=EmbeddingConfig(cache_enabled=True)
+    )
 
     service.generate_embedding("something")
     service.clear_cache()
@@ -102,6 +116,7 @@ def test_clear_cache_resets_size() -> None:
 # ---------------------------------------------------------------------------
 # Error cases
 # ---------------------------------------------------------------------------
+
 
 def test_generate_embedding_raises_when_no_client() -> None:
     service = EmbeddingService(client=None, config=EmbeddingConfig(cache_enabled=False))
@@ -136,6 +151,7 @@ def test_generate_batch_raises_for_empty_list() -> None:
 # ---------------------------------------------------------------------------
 # IEmbeddingClient structural check
 # ---------------------------------------------------------------------------
+
 
 def test_iembedding_client_protocol_interface() -> None:
     """Structural check: our fake satisfies the protocol without any base class."""
