@@ -49,7 +49,7 @@ from app.modules.users.repositories.user_repository import UserRepository
 from app.modules.users.router import router as users_router
 from app.modules.users.services.auth_service import AuthService
 from app.modules.users.services.user_service import UserService
-from app.shared.config import Settings, get_settings
+from app.shared.config import AgentConfig, RagConfig, Settings, get_pipeline_config, get_settings
 from app.shared.constants import (
     CRITIQUE_AGENT_SYSTEM_PROMPT,
     FORMULA_VERIFICATION_SYSTEM_PROMPT,
@@ -113,10 +113,13 @@ def create_orchestrator_service(
     memory_llm = _create_agent_llm(settings, MEMORY_AGENT_SYSTEM_PROMPT)
     formula_verification_llm = _create_agent_llm(settings, FORMULA_VERIFICATION_SYSTEM_PROMPT)
 
+    agent_config = AgentConfig()
+    rag_config = RagConfig()
     rag_service = RAGService(
         vector_client=vector_client,
         embedding_client=embedding_client,
         reranker=PassthroughReranker(),
+        rag_config=rag_config,
     )
     retrieval_agent = RetrievalAgent(rag_service=rag_service)
 
@@ -124,11 +127,12 @@ def create_orchestrator_service(
         llm=orchestrator_llm,
         synthesis_llm=synthesis_llm,
         retrieval_agent=retrieval_agent,
-        reasoning_agent=ReasoningAgent(llm=reasoning_llm),
-        critique_agent=CritiqueAgent(llm=critique_llm),
+        reasoning_agent=ReasoningAgent(llm=reasoning_llm, config=agent_config),
+        critique_agent=CritiqueAgent(llm=critique_llm, config=agent_config),
         memory_agent=MemoryAgent(llm=memory_llm),
         action_agent=ActionAgent(tool_registry=tool_registry),
         formula_verification_agent=FormulaVerificationAgent(llm=formula_verification_llm),
+        config=agent_config,
     )
 
 
@@ -366,9 +370,11 @@ def _start_pipeline_workers(settings: Settings, postgres_engine: Engine) -> None
 
     try:
         _vector_client = _create_vector_client(settings)
+        pipeline_config = get_pipeline_config()
         store_service = StoreService(
             vector_client=_vector_client,
             status_repository=status_repo,
+            pipeline_config=pipeline_config,
         )
 
         def _store_handler(payload: dict[str, Any]) -> None:

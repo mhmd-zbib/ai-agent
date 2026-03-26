@@ -32,11 +32,12 @@ class ChatService:
     ) -> None:
         self._orchestrator_service = orchestrator_service
         self._memory_service = memory_service
-        self._session_course_codes: dict[str, str] = {}
 
     def create_session(self, course_code: str = "") -> SessionCreateResponse:
         session_id = str(uuid4())
-        self._session_course_codes[session_id] = course_code
+        # Store course_code in Redis as session metadata
+        if course_code:
+            self._memory_service.set_metadata(session_id, "course_code", course_code)
         # Prime cache path so first chat turn uses Redis-first flow consistently.
         self._memory_service.get_session_state(session_id)
         return SessionCreateResponse(session_id=session_id)
@@ -62,7 +63,7 @@ class ChatService:
         session_id = payload.session_id
         state = self._memory_service.get_session_state(session_id)
 
-        course_code = self._session_course_codes.get(session_id, "")
+        course_code = self._memory_service.get_metadata(session_id, "course_code")
 
         orch_input = OrchestratorInput(
             user_message=payload.question,
@@ -94,7 +95,7 @@ class ChatService:
         )
 
     def reset_session(self, session_id: str) -> SessionResetResponse:
-        self._session_course_codes.pop(session_id, None)
+        self._memory_service.delete_metadata(session_id, "course_code")
         cleared = self._memory_service.clear_session(session_id)
         return SessionResetResponse(session_id=session_id, cleared=cleared)
 

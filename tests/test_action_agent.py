@@ -96,7 +96,7 @@ def test_unknown_tool_returns_not_registered_error() -> None:
     )
 
     assert output.succeeded is False
-    assert "not registered" in output.error_message
+    assert "don't have access" in output.error_message or "not registered" in output.error_message
     assert "ghost" in output.error_message
 
 

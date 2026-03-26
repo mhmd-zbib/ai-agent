@@ -13,6 +13,9 @@ class ShortTermRepositoryProtocol(Protocol):
     def get_messages(self, session_id: str) -> list[MemoryEntry] | None: ...
     def set_messages(self, session_id: str, messages: list[MemoryEntry]) -> bool: ...
     def delete_messages(self, session_id: str) -> bool: ...
+    def get_metadata(self, session_id: str, key: str) -> str | None: ...
+    def set_metadata(self, session_id: str, key: str, value: str) -> bool: ...
+    def delete_metadata(self, session_id: str, key: str) -> bool: ...
 
 
 class LongTermRepositoryProtocol(Protocol):
@@ -233,3 +236,58 @@ class MemoryService:
         finally:
             # Clear the LRU tracker
             self._session_cache_tracker.clear()
+
+    def get_metadata(self, session_id: str, key: str) -> str:
+        """
+        Retrieve a metadata value for a session.
+
+        Args:
+            session_id: Unique session identifier
+            key: Metadata key (e.g., "course_code")
+
+        Returns:
+            Metadata value as string, or empty string if not found
+
+        Note:
+            Metadata is only stored in Redis (short-term), not persisted to database.
+        """
+        value = self._short_term_repository.get_metadata(session_id, key)
+        return value if value is not None else ""
+
+    def set_metadata(self, session_id: str, key: str, value: str) -> None:
+        """
+        Set a metadata value for a session.
+
+        Args:
+            session_id: Unique session identifier
+            key: Metadata key (e.g., "course_code")
+            value: Metadata value to store
+
+        Note:
+            Metadata is only stored in Redis (short-term) with TTL matching session TTL.
+            Failures are logged but don't raise exceptions.
+        """
+        success = self._short_term_repository.set_metadata(session_id, key, value)
+        if not success:
+            logger.warning(
+                "Failed to set session metadata",
+                extra={"session_id": session_id, "key": key},
+            )
+
+    def delete_metadata(self, session_id: str, key: str) -> None:
+        """
+        Delete a metadata value for a session.
+
+        Args:
+            session_id: Unique session identifier
+            key: Metadata key to delete
+
+        Note:
+            Failures are logged but don't raise exceptions.
+        """
+        success = self._short_term_repository.delete_metadata(session_id, key)
+        if not success:
+            logger.warning(
+                "Failed to delete session metadata",
+                extra={"session_id": session_id, "key": key},
+            )

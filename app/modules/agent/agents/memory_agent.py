@@ -14,6 +14,7 @@ from app.modules.agent.schemas.sub_agents import (
 from app.shared.llm.base import BaseLLM
 from app.shared.logging import get_logger
 from app.shared.schemas import AgentInput
+from app.shared.utils import strip_markdown_code_block
 
 logger = get_logger(__name__)
 
@@ -35,7 +36,7 @@ class MemoryAgent:
         )
         raw_content = ai_response.content
         try:
-            data = json.loads(self._strip_code_block(raw_content))
+            data = json.loads(strip_markdown_code_block(raw_content))
             raw_facts = data.get("facts", [])
             facts = []
             for f in raw_facts:
@@ -71,14 +72,3 @@ class MemoryAgent:
             '{"facts": [{"category": "topic", "fact": "...", "importance": "medium"}], '
             '"summary_for_storage": "..."}'
         )
-
-    def _strip_code_block(self, content: str) -> str:
-        content = content.strip()
-        if content.startswith("```"):
-            lines = content.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            content = "\n".join(lines)
-        return content

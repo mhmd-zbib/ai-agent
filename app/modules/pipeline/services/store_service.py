@@ -32,22 +32,22 @@ from app.modules.pipeline.repositories.document_status_repository import (
 )
 from app.modules.pipeline.schemas.events import EmbedEvent, StoredEvent
 from app.shared.logging import get_logger
+from app.shared.config import PipelineConfig
 
 logger = get_logger(__name__)
 
-# Pinecone's hard limit is 40 KB per metadata object.
-# 512-token chunks are ~2 000–4 000 chars — storing the full text is safe.
-# We apply a generous cap only as a defensive measure.
-_MAX_CHUNK_TEXT_CHARS = 10_000
 
-
-def _build_metadata(event: EmbedEvent) -> dict:
+def _build_metadata(event: EmbedEvent, max_chars: int) -> dict:
     """
     Construct the Pinecone metadata dict from an :class:`EmbedEvent`.
 
     All fields are scalar (string, int, float) so they can be used as
     Pinecone filter operands.  The dict is intentionally flat — nested
     objects are not supported in Pinecone metadata filters.
+    
+    Pinecone's hard limit is 40 KB per metadata object.
+    512-token chunks are ~2 000–4 000 chars — storing the full text is safe.
+    We apply a generous cap only as a defensive measure.
     """
     meta: dict = {
         "document_id": event.document_id,
@@ -56,7 +56,7 @@ def _build_metadata(event: EmbedEvent) -> dict:
         "chunk_id": event.chunk_id,
         "chunk_index": event.chunk_index,
         "total_chunks": event.total_chunks,
-        "chunk_text": event.chunk_text[:_MAX_CHUNK_TEXT_CHARS],
+        "chunk_text": event.chunk_text[:max_chars],
         "course_code": event.course_code,
         "university_name": str(event.university_name),
     }
@@ -79,9 +79,11 @@ class StoreService:
             *,
             vector_client: IVectorClient,
             status_repository: IDocumentStatusRepository,
+            pipeline_config: PipelineConfig,
     ) -> None:
         self._vector_client = vector_client
         self._status_repo = status_repository
+        self._pipeline_config = pipeline_config
 
     def process(self, event: EmbedEvent) -> StoredEvent:
         """
@@ -112,7 +114,9 @@ class StoreService:
             record = VectorRecord(
                 id=vector_id,
                 values=event.vector,
-                metadata=_build_metadata(event),
+                metadata=_build_metadata(
+                    event, self._pipeline_config.max_chunk_text_chars
+                ),
             )
 
             self._vector_client.upsert_records([record], namespace=namespace)

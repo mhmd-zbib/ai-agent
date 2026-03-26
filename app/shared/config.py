@@ -196,6 +196,84 @@ class Settings(BaseSettings):
     )
 
 
+class RagConfig(BaseSettings):
+    """RAG service configuration."""
+
+    fetch_multiplier: int = Field(
+        default=4, description="Multiplier for initial fetch count"
+    )
+    min_relevance_score: float = Field(
+        default=0.40, description="Minimum relevance score threshold"
+    )
+
+    model_config = SettingsConfigDict(env_prefix="RAG_")
+
+
+class AgentConfig(BaseSettings):
+    """Agent and orchestrator configuration."""
+
+    default_temperature: float = Field(
+        default=0.7, description="Default LLM temperature for general responses"
+    )
+    max_tokens: int = Field(default=2000, description="Max tokens per LLM response")
+    planning_temperature: float = Field(
+        default=0.5, description="Temperature for planning/orchestration LLM calls"
+    )
+    synthesis_temperature: float = Field(
+        default=0.7, description="Temperature for synthesis LLM calls"
+    )
+    max_agent_iterations: int = Field(
+        default=10, description="Max agent loop iterations before stopping"
+    )
+    max_llm_retries: int = Field(
+        default=3, description="Max LLM retry attempts on parsing failures"
+    )
+    default_retrieval_top_k: int = Field(
+        default=5, description="Default number of chunks to retrieve from vector DB"
+    )
+    orchestrator_history_window: int = Field(
+        default=10, description="Number of recent turns to include in orchestrator planning"
+    )
+    reasoning_history_window: int = Field(
+        default=6, description="Number of recent turns to include in reasoning agent"
+    )
+    default_confidence: float = Field(
+        default=0.9, ge=0.0, le=1.0, description="Default confidence score"
+    )
+    fallback_confidence: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Confidence score for fallback responses"
+    )
+    critique_default_confidence: float = Field(
+        default=0.6, ge=0.0, le=1.0, description="Default confidence for critique fallback"
+    )
+
+    model_config = SettingsConfigDict(env_prefix="AGENT_")
+
+
+class PipelineConfig(BaseSettings):
+    """Pipeline processing configuration."""
+
+    max_chunk_text_chars: int = Field(
+        default=10_000,
+        description="Maximum chunk text characters for vector metadata",
+    )
+    chunk_size: int = Field(
+        default=512,
+        description="Default chunk size in tokens",
+    )
+    chunk_overlap: int = Field(
+        default=50,
+        description="Default chunk overlap in tokens",
+    )
+
+    model_config = SettingsConfigDict(env_prefix="PIPELINE_")
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache(maxsize=1)
+def get_pipeline_config() -> PipelineConfig:
+    return PipelineConfig()

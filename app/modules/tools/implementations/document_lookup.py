@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.modules.tools.base import BaseTool
+from app.modules.tools.exceptions import ToolConfigurationError, ToolValidationError
 
 
 class DocumentLookupTool(BaseTool):
@@ -27,10 +28,13 @@ class DocumentLookupTool(BaseTool):
     def run(self, arguments: dict) -> str:
         query = str(arguments.get("query", "")).strip()
         if not query:
-            return "No query provided."
+            raise ToolValidationError(tool_id=self.name, validation_errors=["Query is required"])
 
         if self._vector_client is None or self._embedding_client is None:
-            return "Document search is not configured."
+            raise ToolConfigurationError(
+                tool_id=self.name,
+                issue="Vector or embedding client not configured",
+            )
 
         user_id = str(arguments.get("user_id", ""))
 

@@ -10,6 +10,7 @@ from typing import Any, Literal, Optional
 
 from app.modules.agent.schemas.sub_agents import ReasoningInput, RetrievedChunk
 from app.modules.agent.agents.reasoning_agent import ReasoningAgent
+from app.shared.config import AgentConfig
 from app.shared.llm.base import BaseLLM
 from app.shared.schemas import AgentInput, AIResponse
 
@@ -48,7 +49,7 @@ def _chunk(id_: str, text: str) -> RetrievedChunk:
 
 def _make_agent(responses: list[str]) -> tuple[ReasoningAgent, _FakeLLM]:
     llm = _FakeLLM(responses)
-    return ReasoningAgent(llm=llm), llm
+    return ReasoningAgent(llm=llm, config=AgentConfig()), llm
 
 
 def _valid_json(

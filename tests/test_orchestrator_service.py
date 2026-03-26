@@ -29,6 +29,7 @@ from app.modules.agent.schemas.sub_agents import (
 from app.modules.agent.services.orchestrator_service import OrchestratorService
 from app.shared.llm.base import BaseLLM
 from app.shared.schemas import AgentInput, AIResponse
+from app.shared.config import AgentConfig
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +176,7 @@ def _make_orchestrator(
 ) -> tuple[OrchestratorService, _FakeLLM, _FakeLLM]:
     plan_llm = _FakeLLM(plan_responses)
     synthesis_llm = _FakeLLM([synthesis_response])
+    config = AgentConfig()
     service = OrchestratorService(
         llm=plan_llm,
         synthesis_llm=synthesis_llm,
@@ -184,6 +186,7 @@ def _make_orchestrator(
         memory_agent=memory_agent or _FakeMemoryAgent(),  # type: ignore[arg-type]
         action_agent=action_agent or _FakeActionAgent(),  # type: ignore[arg-type]
         formula_verification_agent=formula_verification_agent or _FakeFormulaVerificationAgent(),  # type: ignore[arg-type]
+        config=config,
     )
     return service, plan_llm, synthesis_llm
 
@@ -346,6 +349,7 @@ def test_needs_revision_synthesis_includes_revision_instructions() -> None:
         memory_agent=_FakeMemoryAgent(),  # type: ignore[arg-type]
         action_agent=_FakeActionAgent(),  # type: ignore[arg-type]
         formula_verification_agent=_FakeFormulaVerificationAgent(),  # type: ignore[arg-type]
+        config=AgentConfig(),
     )
 
     output = service.run(_input("question"))

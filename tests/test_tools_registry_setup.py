@@ -1,9 +1,12 @@
 import json
 
+import pytest
+
 from app.modules.tools import get_tool_registry
 from app.modules.tools.implementations.datetime_now import DateTimeNowTool
 from app.modules.tools.implementations.weather import WeatherTool
 from app.modules.tools.implementations.web_search import WebSearchTool
+from app.modules.tools.exceptions import ToolValidationError
 
 
 class _DummyResponse:
@@ -99,6 +102,6 @@ def test_weather_tool_parses_response(monkeypatch) -> None:
 
 def test_weather_tool_requires_city() -> None:
     tool = WeatherTool()
-    output = tool.run({})
-
-    assert output == "No city provided."
+    with pytest.raises(ToolValidationError) as exc_info:
+        tool.run({})
+    assert "City is required" in str(exc_info.value)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.modules.tools.implementations.scientific_calc import ScientificCalcTool
+from app.modules.tools.exceptions import ToolValidationError, ToolExecutionError
 
 
 @pytest.fixture()
@@ -73,44 +74,49 @@ def test_run_no_variables(tool: ScientificCalcTool) -> None:
 
 
 def test_run_empty_formula_returns_error(tool: ScientificCalcTool) -> None:
-    result = tool.run({"formula": "", "variables": {}, "description": "nothing"})
-    assert "Error" in result
+    with pytest.raises(ToolValidationError) as exc_info:
+        tool.run({"formula": "", "variables": {}, "description": "nothing"})
+    assert "Formula is required" in str(exc_info.value)
 
 
 def test_run_zero_division_returns_error(tool: ScientificCalcTool) -> None:
-    result = tool.run(
-        {"formula": "1 / x", "variables": {"x": 0.0}, "description": "div by zero"}
-    )
-    assert "Error" in result or "inf" in result.lower()
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.run(
+            {"formula": "1 / x", "variables": {"x": 0.0}, "description": "div by zero"}
+        )
+    assert "division by zero" in str(exc_info.value).lower()
 
 
 def test_run_unknown_variable_returns_error(tool: ScientificCalcTool) -> None:
-    result = tool.run(
-        {
-            "formula": "unknown_var + 1",
-            "variables": {},
-            "description": "bad variable",
-        }
-    )
-    assert "Error" in result
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.run(
+            {
+                "formula": "unknown_var + 1",
+                "variables": {},
+                "description": "bad variable",
+            }
+        )
+    assert "unknown" in str(exc_info.value).lower()
 
 
 def test_run_invalid_syntax_returns_error(tool: ScientificCalcTool) -> None:
-    result = tool.run(
-        {"formula": "!!!bad syntax!!!", "variables": {}, "description": "syntax error"}
-    )
-    assert "Error" in result
+    with pytest.raises(ToolExecutionError) as exc_info:
+        tool.run(
+            {"formula": "!!!bad syntax!!!", "variables": {}, "description": "syntax error"}
+        )
+    assert "syntax" in str(exc_info.value).lower()
 
 
 def test_run_invalid_variable_value_returns_error(tool: ScientificCalcTool) -> None:
-    result = tool.run(
-        {
-            "formula": "x + 1",
-            "variables": {"x": "not_a_number"},
-            "description": "bad value",
-        }
-    )
-    assert "Error" in result
+    with pytest.raises(ToolValidationError) as exc_info:
+        tool.run(
+            {
+                "formula": "x + 1",
+                "variables": {"x": "not_a_number"},
+                "description": "bad value",
+            }
+        )
+    assert "Invalid variable value" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

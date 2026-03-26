@@ -152,3 +152,92 @@ class ShortTermRepository:
                 extra={"session_id": session_id, "error": str(e)},
             )
             return False
+
+    @staticmethod
+    def _metadata_key(session_id: str, key: str) -> str:
+        """Generate Redis key for session metadata."""
+        return f"chat:session:{session_id}:metadata:{key}"
+
+    def get_metadata(self, session_id: str, key: str) -> str | None:
+        """
+        Retrieve a metadata value for a session.
+
+        Args:
+            session_id: Unique session identifier
+            key: Metadata key (e.g., "course_code")
+
+        Returns:
+            Metadata value as string if found, None otherwise
+        """
+        try:
+            value = self._redis.get(self._metadata_key(session_id, key))
+            return value if value else None
+        except (RedisConnectionError, RedisTimeoutError) as e:
+            logger.warning(
+                "Redis connection/timeout error during get_metadata",
+                extra={"session_id": session_id, "key": key, "error": str(e)},
+            )
+            return None
+        except RedisError as e:
+            logger.error(
+                "Redis error during get_metadata",
+                extra={"session_id": session_id, "key": key, "error": str(e)},
+            )
+            return None
+
+    def set_metadata(self, session_id: str, key: str, value: str) -> bool:
+        """
+        Set a metadata value for a session with TTL.
+
+        Args:
+            session_id: Unique session identifier
+            key: Metadata key (e.g., "course_code")
+            value: Metadata value to store
+
+        Returns:
+            True if successfully set, False otherwise
+        """
+        try:
+            self._redis.set(
+                self._metadata_key(session_id, key), value, ex=self._ttl_seconds
+            )
+            return True
+        except (RedisConnectionError, RedisTimeoutError) as e:
+            logger.warning(
+                "Redis connection/timeout error during set_metadata",
+                extra={"session_id": session_id, "key": key, "error": str(e)},
+            )
+            return False
+        except RedisError as e:
+            logger.error(
+                "Redis error during set_metadata",
+                extra={"session_id": session_id, "key": key, "error": str(e)},
+            )
+            return False
+
+    def delete_metadata(self, session_id: str, key: str) -> bool:
+        """
+        Delete a metadata value for a session.
+
+        Args:
+            session_id: Unique session identifier
+            key: Metadata key to delete
+
+        Returns:
+            True if successfully deleted, False otherwise
+        """
+        try:
+            self._redis.delete(self._metadata_key(session_id, key))
+            return True
+        except (RedisConnectionError, RedisTimeoutError) as e:
+            logger.warning(
+                "Redis connection/timeout error during delete_metadata",
+                extra={"session_id": session_id, "key": key, "error": str(e)},
+            )
+            return False
+        except RedisError as e:
+            logger.error(
+                "Redis error during delete_metadata",
+                extra={"session_id": session_id, "key": key, "error": str(e)},
+            )
+            return False

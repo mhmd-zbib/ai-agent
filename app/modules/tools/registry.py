@@ -1,6 +1,7 @@
 from typing import Any
 
 from app.modules.tools.base import BaseTool
+from app.modules.tools.exceptions import ToolNotFoundError
 
 
 class ToolRegistry:
@@ -18,7 +19,7 @@ class ToolRegistry:
     def resolve(self, name: str) -> BaseTool:
         tool = self._tools.get(name)
         if tool is None:
-            raise KeyError(f"Tool '{name}' is not registered")
+            raise ToolNotFoundError(name)
         return tool
 
     def list_tools(self) -> list[str]:

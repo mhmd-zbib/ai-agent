@@ -5,6 +5,12 @@ ActionAgent — executes registered tools (no LLM).
 from __future__ import annotations
 
 from app.modules.agent.schemas.sub_agents import ActionInput, ActionOutput
+from app.modules.tools.exceptions import (
+    ToolConfigurationError,
+    ToolExecutionError,
+    ToolNotFoundError,
+    ToolValidationError,
+)
 from app.shared.logging import get_logger
 from app.shared.protocols import IToolRegistry
 
@@ -40,20 +46,65 @@ class ActionAgent:
                 extra={"tool_id": input.tool_id, "result_length": len(result)},
             )
             return ActionOutput(tool_id=input.tool_id, result=result, succeeded=True)
-        except KeyError:
-            logger.error(
-                "ActionAgent: tool not registered",
-                extra={"tool_id": input.tool_id, "session_id": input.session_id},
+        except ToolNotFoundError as e:
+            logger.warning(
+                "ActionAgent: tool not found",
+                extra={"tool_id": e.tool_id, "session_id": input.session_id},
             )
             return ActionOutput(
                 tool_id=input.tool_id,
                 result="",
                 succeeded=False,
-                error_message=f"Tool '{input.tool_id}' is not registered.",
+                error_message=f"I don't have access to the '{e.tool_id}' tool.",
             )
-        except Exception as exc:
+        except ToolExecutionError as e:
             logger.error(
                 "ActionAgent: tool execution failed",
+                extra={
+                    "tool_id": e.tool_id,
+                    "session_id": input.session_id,
+                    "reason": e.reason,
+                },
+            )
+            return ActionOutput(
+                tool_id=input.tool_id,
+                result="",
+                succeeded=False,
+                error_message=e.user_message,
+            )
+        except ToolConfigurationError as e:
+            logger.error(
+                "ActionAgent: tool misconfigured",
+                extra={
+                    "tool_id": e.tool_id,
+                    "session_id": input.session_id,
+                    "issue": e.issue,
+                },
+            )
+            return ActionOutput(
+                tool_id=input.tool_id,
+                result="",
+                succeeded=False,
+                error_message=f"The {e.tool_id} tool is not properly configured.",
+            )
+        except ToolValidationError as e:
+            logger.warning(
+                "ActionAgent: tool validation failed",
+                extra={
+                    "tool_id": e.tool_id,
+                    "session_id": input.session_id,
+                    "errors": e.validation_errors,
+                },
+            )
+            return ActionOutput(
+                tool_id=input.tool_id,
+                result="",
+                succeeded=False,
+                error_message=f"Invalid input: {', '.join(e.validation_errors)}",
+            )
+        except Exception as exc:
+            logger.exception(
+                "ActionAgent: unexpected tool error",
                 extra={
                     "tool_id": input.tool_id,
                     "session_id": input.session_id,
@@ -64,5 +115,5 @@ class ActionAgent:
                 tool_id=input.tool_id,
                 result="",
                 succeeded=False,
-                error_message=f"Tool '{input.tool_id}' raised: {exc}",
+                error_message="An unexpected error occurred while using the tool.",
             )

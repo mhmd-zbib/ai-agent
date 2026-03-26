@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Literal
 
+from app.modules.tools.exceptions import (
+    ToolConfigurationError,
+    ToolExecutionError,
+    ToolNotFoundError,
+    ToolValidationError,
+)
 from app.shared.llm.base import BaseLLM
 from app.shared.logging import get_logger
 from app.shared.protocols import IToolRegistry
@@ -87,9 +93,6 @@ class AgentService:
         if tool_result is None:
             return ai_response.content
 
-        if tool_result.startswith("Weather service is currently unavailable"):
-            return "I couldn't reach the weather service right now. Please try again in a moment."
-
         if ai_response.type == "tool":
             return tool_result
 
@@ -135,33 +138,35 @@ class AgentService:
                 },
             )
             ai_response.content = self._format_user_content(ai_response, tool_result)
-            # Treat upstream service errors as failed: error message is already
-            # user-friendly, no need for a followup LLM call.
-            tool_succeeded = not tool_result.startswith(
-                "Weather service is currently unavailable"
-            )
-            return ai_response, tool_succeeded
-        except KeyError as exc:
-            logger.error(
-                "Tool not found",
-                extra={
-                    "session_id": session_id,
-                    "tool_id": ai_response.tool_action.tool_id,
-                    "error": str(exc),
-                },
-            )
-            ai_response.content = "Sorry, I couldn't run that tool."
+            return ai_response, True
+        except ToolNotFoundError as e:
+            logger.warning("Tool not found", extra={"tool_id": e.tool_id})
+            ai_response.content = f"I don't have access to the '{e.tool_id}' tool."
             return ai_response, False
-        except Exception as exc:
+        except ToolExecutionError as e:
             logger.error(
                 "Tool execution failed",
-                extra={
-                    "session_id": session_id,
-                    "tool_id": ai_response.tool_action.tool_id,
-                    "error": str(exc),
-                },
+                extra={"tool_id": e.tool_id, "reason": e.reason},
             )
-            ai_response.content = "Sorry, I hit an error while processing that request."
+            ai_response.content = e.user_message
+            return ai_response, False
+        except ToolConfigurationError as e:
+            logger.error(
+                "Tool misconfigured",
+                extra={"tool_id": e.tool_id, "issue": e.issue},
+            )
+            ai_response.content = f"The {e.tool_id} tool is not properly configured."
+            return ai_response, False
+        except ToolValidationError as e:
+            logger.warning(
+                "Tool validation failed",
+                extra={"tool_id": e.tool_id, "errors": e.validation_errors},
+            )
+            ai_response.content = f"Invalid input: {', '.join(e.validation_errors)}"
+            return ai_response, False
+        except Exception as e:
+            logger.exception("Unexpected tool error")
+            ai_response.content = "An unexpected error occurred while using the tool."
             return ai_response, False
 
     def _synthesize_followup(

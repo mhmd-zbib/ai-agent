@@ -11,16 +11,19 @@ from app.modules.agent.schemas.sub_agents import (
     ReasoningOutput,
     ReasoningStep,
 )
+from app.shared.config import AgentConfig
 from app.shared.llm.base import BaseLLM
 from app.shared.logging import get_logger
 from app.shared.schemas import AgentInput
+from app.shared.utils import strip_markdown_code_block
 
 logger = get_logger(__name__)
 
 
 class ReasoningAgent:
-    def __init__(self, *, llm: BaseLLM) -> None:
+    def __init__(self, *, llm: BaseLLM, config: AgentConfig) -> None:
         self._llm = llm
+        self._config = config
 
     def run(self, input: ReasoningInput) -> ReasoningOutput:
         prompt = self._build_prompt(input)
@@ -30,7 +33,7 @@ class ReasoningAgent:
         )
         raw_content = ai_response.content
         try:
-            data = json.loads(self._strip_code_block(raw_content))
+            data = json.loads(strip_markdown_code_block(raw_content))
             raw_steps = data.get("steps", [])
             steps = [
                 ReasoningStep(
@@ -46,7 +49,7 @@ class ReasoningAgent:
                 answer=str(data.get("answer", "")),
                 steps=steps,
                 context_adequacy=adequacy,  # type: ignore[arg-type]
-                confidence=float(data.get("confidence", 0.9)),
+                confidence=float(data.get("confidence", self._config.default_confidence)),
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             logger.warning(
@@ -57,7 +60,7 @@ class ReasoningAgent:
                 answer=raw_content,
                 steps=[],
                 context_adequacy="insufficient",
-                confidence=0.5,
+                confidence=self._config.fallback_confidence,
             )
 
     def _build_prompt(self, input: ReasoningInput) -> str:
@@ -68,7 +71,7 @@ class ReasoningAgent:
 
         history_block = ""
         if input.history:
-            lines = [f"{m['role']}: {m['content'][:300]}" for m in input.history[-6:]]
+            lines = [f"{m['role']}: {m['content'][:300]}" for m in input.history[-self._config.reasoning_history_window:]]
             history_block = "CONVERSATION HISTORY:\n" + "\n".join(lines) + "\n\n"
 
         no_context_instruction = (
@@ -95,14 +98,3 @@ class ReasoningAgent:
             '{"answer": "...", "steps": [{"step_number": 1, "reasoning": "..."}], '
             '"context_adequacy": "sufficient", "confidence": 0.9}'
         )
-
-    def _strip_code_block(self, content: str) -> str:
-        content = content.strip()
-        if content.startswith("```"):
-            lines = content.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            content = "\n".join(lines)
-        return content

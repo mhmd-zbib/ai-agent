@@ -12,6 +12,7 @@ from app.modules.agent.schemas.sub_agents import CritiqueInput, RetrievedChunk
 from app.modules.agent.agents.critique_agent import CritiqueAgent
 from app.shared.llm.base import BaseLLM
 from app.shared.schemas import AgentInput, AIResponse
+from app.shared.config import AgentConfig
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +87,7 @@ def _needs_revision_json() -> str:
 
 
 def test_approved_verdict() -> None:
-    agent = CritiqueAgent(llm=_FakeLLM([_approved_json()]))
+    agent = CritiqueAgent(llm=_FakeLLM([_approved_json()]), config=AgentConfig())
     output = agent.run(
         CritiqueInput(
             question="Capital of France?",
@@ -104,7 +105,7 @@ def test_approved_verdict() -> None:
 
 
 def test_needs_revision_verdict() -> None:
-    agent = CritiqueAgent(llm=_FakeLLM([_needs_revision_json()]))
+    agent = CritiqueAgent(llm=_FakeLLM([_needs_revision_json()]), config=AgentConfig())
     output = agent.run(
         CritiqueInput(
             question="Capital of France?",
@@ -121,7 +122,7 @@ def test_needs_revision_verdict() -> None:
 
 
 def test_parse_failure_defaults_to_approved() -> None:
-    agent = CritiqueAgent(llm=_FakeLLM(["not-valid-json {{{"]))
+    agent = CritiqueAgent(llm=_FakeLLM(["not-valid-json {{{"]), config=AgentConfig())
     output = agent.run(
         CritiqueInput(
             question="q",
@@ -139,14 +140,14 @@ def test_parse_failure_defaults_to_approved() -> None:
 
 def test_no_chunks_still_calls_llm() -> None:
     llm = _FakeLLM([_approved_json()])
-    agent = CritiqueAgent(llm=llm)
+    agent = CritiqueAgent(llm=llm, config=AgentConfig())
     agent.run(CritiqueInput(question="q", draft_answer="a", chunks=[], session_id="s1"))
     assert llm.call_count == 1
 
 
 def test_strips_markdown_code_block() -> None:
     wrapped = "```json\n" + _approved_json() + "\n```"
-    agent = CritiqueAgent(llm=_FakeLLM([wrapped]))
+    agent = CritiqueAgent(llm=_FakeLLM([wrapped]), config=AgentConfig())
     output = agent.run(
         CritiqueInput(question="q", draft_answer="a", chunks=[], session_id="s1")
     )

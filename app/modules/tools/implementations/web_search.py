@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 
 from app.modules.tools.base import BaseTool
+from app.modules.tools.exceptions import ToolExecutionError, ToolValidationError
 
 
 class WebSearchTool(BaseTool):
@@ -31,7 +32,7 @@ class WebSearchTool(BaseTool):
     def run(self, arguments: dict[str, object]) -> str:
         query = str(arguments.get("query", "")).strip()
         if not query:
-            return "No query provided."
+            raise ToolValidationError(tool_id=self.name, validation_errors=["Query is required"])
 
         max_results_raw = arguments.get("max_results", 3)
         try:
@@ -48,8 +49,12 @@ class WebSearchTool(BaseTool):
         try:
             with urlopen(url, timeout=8) as response:  # nosec B310
                 payload = json.loads(response.read().decode("utf-8"))
-        except Exception:
-            return "Search service is currently unavailable. Please try again."
+        except Exception as e:
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason=f"Search API connection failed: {str(e)}",
+                user_message="I couldn't reach the search service right now. Please try again later.",
+            )
 
         abstract = str(payload.get("AbstractText") or "").strip()
         heading = str(payload.get("Heading") or "").strip()

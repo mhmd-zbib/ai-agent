@@ -3,17 +3,8 @@ from collections import defaultdict
 
 from app.modules.rag.schemas import SearchQuery, SearchResult
 from app.modules.rag.services.base_reranker import BaseReranker
+from app.shared.config import RagConfig
 from app.shared.protocols import IEmbeddingClient, IVectorClient
-
-# Fetch this many candidates from Qdrant/Pinecone before diversity filtering.
-# Larger pool = better document coverage when multiple docs share the same
-# course_code, at the cost of a slightly larger payload from the vector DB.
-_FETCH_MULTIPLIER = 4
-
-# Chunks with a cosine similarity score below this threshold are considered
-# irrelevant and are dropped before being passed to the reasoning agent.
-# Prevents the LLM from hallucinating answers from weakly-matching chunks.
-_MIN_RELEVANCE_SCORE = 0.40
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +25,13 @@ class RAGService:
         vector_client: IVectorClient | None,
         embedding_client: IEmbeddingClient | None,
         reranker: BaseReranker,
+        rag_config: RagConfig,
         enable_reranking: bool = True,
     ) -> None:
         self._vector_client = vector_client
         self._embedding_client = embedding_client
         self._reranker = reranker
+        self._rag_config = rag_config
         self._enable_reranking = enable_reranking
 
     def search(self, query: SearchQuery) -> list[SearchResult]:
@@ -82,13 +75,13 @@ class RAGService:
                     "namespace": query.user_id,
                     "course_code": query.course_code or "not_specified",
                     "university_name": query.university_name or "not_specified",
-                    "fetch_k": query.top_k * _FETCH_MULTIPLIER,
+                    "fetch_k": query.top_k * self._rag_config.fetch_multiplier,
                 },
             )
 
             vector = self._embedding_client.embed(query.text)
             # Over-fetch so the diversity step has enough candidates from all docs.
-            fetch_k = query.top_k * _FETCH_MULTIPLIER
+            fetch_k = query.top_k * self._rag_config.fetch_multiplier
             raw_hits = self._vector_client.query(
                 vector=vector,
                 top_k=fetch_k,
@@ -124,7 +117,7 @@ class RAGService:
         # Drop chunks that are not relevant enough to be useful.
         # These would cause the reasoning agent to hallucinate from weak matches.
         initial_count = len(hits)
-        hits = [h for h in hits if h.score >= _MIN_RELEVANCE_SCORE]
+        hits = [h for h in hits if h.score >= self._rag_config.min_relevance_score]
         
         if initial_count > len(hits):
             logger.debug(
@@ -132,7 +125,7 @@ class RAGService:
                 extra={
                     "initial_count": initial_count,
                     "filtered_count": len(hits),
-                    "threshold": _MIN_RELEVANCE_SCORE,
+                    "threshold": self._rag_config.min_relevance_score,
                 },
             )
         
@@ -141,7 +134,7 @@ class RAGService:
                 "RAGService: all chunks below relevance threshold; returning []",
                 extra={
                     "query": query.text,
-                    "threshold": _MIN_RELEVANCE_SCORE,
+                    "threshold": self._rag_config.min_relevance_score,
                     "course_code": query.course_code or "not_specified",
                 },
             )

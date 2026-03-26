@@ -16,6 +16,7 @@ from qdrant_client.models import ScoredPoint
 from app.modules.rag.schemas import SearchQuery
 from app.modules.rag.services.rag_service import RAGService
 from app.modules.rag.services.base_reranker import BaseReranker
+from app.shared.config import RagConfig
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ def rag_service(mock_vector_client, mock_embedding_client):
         vector_client=mock_vector_client,
         embedding_client=mock_embedding_client,
         reranker=_NoOpReranker(),
-        enable_reranking=False,
+        rag_config=RagConfig(),
     )
 
 

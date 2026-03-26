@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 
 from app.modules.tools.base import BaseTool
+from app.modules.tools.exceptions import ToolExecutionError, ToolValidationError
 
 
 class WeatherTool(BaseTool):
@@ -30,7 +31,7 @@ class WeatherTool(BaseTool):
     def run(self, arguments: dict[str, object]) -> str:
         city = str(arguments.get("city", "")).strip()
         if not city:
-            return "No city provided."
+            raise ToolValidationError(tool_id=self.name, validation_errors=["City is required"])
 
         units = str(arguments.get("units", "celsius")).strip().lower()
         temperature_unit = "fahrenheit" if units == "fahrenheit" else "celsius"
@@ -38,7 +39,11 @@ class WeatherTool(BaseTool):
 
         lat, lon, location_name = self._resolve_city(city)
         if lat is None or lon is None:
-            return f"Could not find weather location for '{city}'."
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason=f"Geocoding failed for city '{city}'",
+                user_message=f"I couldn't find the location '{city}'. Please check the spelling or try a different city.",
+            )
 
         params = urlencode(
             {
@@ -54,8 +59,12 @@ class WeatherTool(BaseTool):
         try:
             with urlopen(weather_url, timeout=8) as response:  # nosec B310
                 payload = json.loads(response.read().decode("utf-8"))
-        except Exception:
-            return "Weather service is currently unavailable. Please try again."
+        except Exception as e:
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason=f"Weather API connection failed: {str(e)}",
+                user_message="I couldn't reach the weather service right now. Please try again later.",
+            )
 
         current = payload.get("current") or {}
         temp = current.get("temperature_2m")
@@ -64,7 +73,11 @@ class WeatherTool(BaseTool):
         wind_speed = current.get("wind_speed_10m")
 
         if temp is None:
-            return f"Weather data is currently unavailable for '{location_name}'."
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason=f"Weather data missing for location '{location_name}'",
+                user_message=f"Weather data is currently unavailable for '{location_name}'. Please try again later.",
+            )
 
         temp_unit_label = "F" if temperature_unit == "fahrenheit" else "C"
         condition = self._weather_code_to_text(weather_code)

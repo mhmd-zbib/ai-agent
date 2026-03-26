@@ -11,6 +11,7 @@ import math
 from typing import Any
 
 from app.modules.tools.base import BaseTool
+from app.modules.tools.exceptions import ToolExecutionError, ToolValidationError
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
@@ -63,21 +64,28 @@ class ScientificCalcTool(BaseTool):
         description = str(arguments.get("description", ""))
 
         if not formula:
-            return "Error: No formula provided."
+            raise ToolValidationError(tool_id=self.name, validation_errors=["Formula is required"])
 
         variables: dict[str, float] = {}
         try:
             for k, v in raw_variables.items():
                 variables[str(k)] = float(v)  # type: ignore[arg-type]
         except (TypeError, ValueError) as exc:
-            return f"Error: Invalid variable value — {exc}"
+            raise ToolValidationError(
+                tool_id=self.name,
+                validation_errors=[f"Invalid variable value: {exc}"],
+            )
 
         try:
             import numpy as np
             import scipy
             import sympy as sp
         except ImportError as exc:
-            return f"Error: Required scientific library not installed — {exc}"
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason=f"Missing scientific library: {exc}",
+                user_message="Scientific calculation libraries are not available. Please contact support.",
+            )
 
         namespace: dict[str, Any] = {
             "__builtins__": self._SAFE_BUILTINS,
@@ -93,17 +101,33 @@ class ScientificCalcTool(BaseTool):
         try:
             result = eval(formula, namespace)  # noqa: S307
         except ZeroDivisionError:
-            return "Error: Division by zero in formula."
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason="Division by zero in formula",
+                user_message="The calculation resulted in division by zero. Please adjust your formula.",
+            )
         except NameError as exc:
-            return f"Error: Unknown variable or function in formula — {exc}"
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason=f"Unknown variable or function: {exc}",
+                user_message=f"The formula references an unknown variable or function: {exc}",
+            )
         except SyntaxError as exc:
-            return f"Error: Invalid formula syntax — {exc}"
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason=f"Invalid formula syntax: {exc}",
+                user_message=f"The formula has invalid syntax: {exc}",
+            )
         except Exception as exc:
             logger.warning(
                 "ScientificCalcTool: formula evaluation failed",
                 extra={"formula": formula, "error": str(exc)},
             )
-            return f"Error evaluating formula: {exc}"
+            raise ToolExecutionError(
+                tool_id=self.name,
+                reason=f"Formula evaluation failed: {exc}",
+                user_message=f"I encountered an error evaluating the formula: {exc}",
+            )
 
         lines = [f"Calculation: {description}", f"Formula: {formula}"]
         if variables:
