@@ -16,7 +16,10 @@ uv sync --dev
 docker compose up -d
 
 # Run API server with hot reload
-uv run uvicorn main:app --reload
+uv run uvicorn api.main:app --app-dir packages/api --reload
+
+# Run ingestion API server
+uv run uvicorn ingestion.api.main:app --app-dir packages/ingestion --reload
 
 # Run all tests (no infrastructure needed — everything is mocked)
 uv run pytest -q
@@ -28,39 +31,63 @@ uv run pytest tests/test_chat.py -v
 uv run pytest tests/test_chat.py::test_name -v
 
 # Run with coverage
-uv run pytest --cov=app --cov-fail-under=85 tests/
+uv run pytest --cov=packages --cov-fail-under=85 tests/
 
 # Lint and format
-uv run ruff check .
-uv run ruff format .
+uv run ruff check packages/
+uv run ruff format packages/
 
 # Type check
-uv run mypy app/
+uv run mypy packages/shared packages/api packages/ingestion
 ```
 
-**Known pre-existing failures**: `tests/test_exceptions.py` has 2 failing tests about `x-request-id` header echoing. These are pre-existing and not caused by new code.
+**Known pre-existing failures**:
+- `tests/test_exceptions.py` — 2 tests about `x-request-id` header echoing.
+- `tests/test_action_agent.py`, `tests/test_agent_service.py` — error message wording mismatches from staged `agent_service.py` changes.
+- `tests/test_chat_service_tool_content.py` — fake `IMemoryService` missing `get_metadata`/`set_metadata` from staged `protocols.py` changes.
 
 ---
 
 ## Architecture
 
-Hexagonal (Ports & Adapters). Dependency flow is strictly one-directional:
+uv workspace monorepo with three installable packages:
 
 ```
-app/modules/   → app/shared/   ← app/infrastructure/
-(business)       (contracts)      (technology drivers)
+packages/
+├── shared/     — infra drivers + cross-cutting contracts
+├── api/        — agent/chat FastAPI app
+└── ingestion/  — 4-stage document ingestion pipeline + thin FastAPI wrapper
 ```
 
-No module imports another module. All cross-cutting contracts live in `app/shared/protocols.py`. All wiring happens in `app/main.py` (the composition root).
+Dependency flow (still hexagonal):
+
+```
+api.modules/       → shared/           ← shared.infrastructure/
+ingestion/         → shared/
+(business)           (contracts)         (technology drivers)
+```
+
+No package imports from another package except `api → shared` and `ingestion → shared`. All wiring happens in `packages/api/api/main.py` (composition root for the chat API).
+
+### Package → Python namespace mapping
+
+| Package dir | Python import prefix |
+|-------------|----------------------|
+| `packages/shared/shared/` | `shared.*` |
+| `packages/api/api/` | `api.*` |
+| `packages/ingestion/ingestion/` | `ingestion.*` |
+| `packages/agents/agents/` | `agents.*` |
+| `packages/pipeline/pipeline/` | `pipeline.*` |
 
 ### Layer Responsibilities
 
 | Layer | Path | Responsibility |
 |-------|------|----------------|
-| Modules | `app/modules/` | Business logic only. No infrastructure imports. |
-| Shared | `app/shared/` | Protocols, schemas, config, DI helpers. |
-| Infrastructure | `app/infrastructure/` | Concrete drivers: LLM, DB, vector, storage, messaging. |
-| Workers | `app/workers/` | In-process daemon threads for the RAG pipeline. |
+| Modules | `packages/api/api/modules/` | Business logic only. No infrastructure imports. |
+| Shared contracts | `packages/shared/shared/` | Protocols, schemas, config, logging, exceptions. |
+| Ingestion pipeline | `packages/ingestion/ingestion/` | 4-stage document ingestion (parse → chunk → metadata → store). |
+| Agents | `packages/agents/agents/` | Agent orchestration and execution. |
+| Pipeline | `packages/pipeline/pipeline/` | Job pipeline processing. |
 
 ### Modules
 
@@ -68,9 +95,7 @@ No module imports another module. All cross-cutting contracts live in `app/share
 - **`agent/`** — LLM orchestration: prompt → call LLM → if tool call, execute → re-call LLM.
 - **`memory/`** — Dual-tier session storage: Redis (hot, TTL=3600s) + PostgreSQL (cold). Cache-aside + write-through.
 - **`rag/`** — Retrieval: query vector DB → optional rerank → return context for chat.
-- **`tools/`** — Plugin registry. Tools extend `BaseTool`, register in `app/main.py`, and expose an OpenAI function schema.
-- **`documents/`** — Multipart file upload to MinIO, then publish `DocumentUploadedEvent` to RabbitMQ.
-- **`pipeline/`** — 4-stage event-driven ingestion: parse → chunk → embed → store. Each stage is a worker consuming from a RabbitMQ queue.
+- **`tools/`** — Plugin registry. Tools extend `BaseTool`, register in `packages/api/api/main.py`, and expose an OpenAI function schema.
 - **`embeddings/`** — Redis-backed caching layer over the embeddings API.
 - **`users/`** — JWT auth (HS256 via PyJWT + bcrypt passwords).
 
