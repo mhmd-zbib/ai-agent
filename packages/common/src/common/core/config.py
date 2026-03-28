@@ -51,6 +51,16 @@ class Settings(BaseSettings):
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
+    # Default admin account seeded on first startup (change via env vars)
+    initial_admin_email: str = Field(
+        default="admin@admin.com",
+        alias="INITIAL_ADMIN_EMAIL",
+    )
+    initial_admin_password: str = Field(
+        default="Admin123!",
+        alias="INITIAL_ADMIN_PASSWORD",
+    )
+
     enable_demo_tools: bool = Field(
         default=False,
         validation_alias="ENABLE_DEMO_TOOLS",

@@ -27,9 +27,3 @@ class AuthConfig:
             raise ValueError("access_token_expire_minutes must be positive")
 
 
-@dataclass(frozen=True)
-class RepositoryConfig:
-    """Configuration for repository operations."""
-
-    query_timeout_seconds: int = 30
-    max_retries: int = 3

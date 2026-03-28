@@ -34,6 +34,27 @@ class AuthenticationError(AppError):
     code = "authentication_error"
 
 
+class AuthorizationError(AppError):
+    """Raised when the user lacks permission to perform an action."""
+
+    status_code = 403
+    code = "authorization_error"
+
+
+class OnboardingRequiredError(AppError):
+    """Raised when a user tries to access a resource before completing onboarding."""
+
+    status_code = 403
+    code = "onboarding_required"
+
+
+class NotFoundError(AppError):
+    """Raised when a requested resource does not exist."""
+
+    status_code = 404
+    code = "not_found"
+
+
 class ConflictError(AppError):
     """Raised when creating a resource conflicts with existing state."""
 

@@ -6,14 +6,15 @@ from api.chat.schemas import (
     SessionResetResponse,
 )
 from api.chat.service import ChatService
-from api.dependencies import get_chat_service, get_current_user
-from api.auth.schemas import UserOut
+from api.dependencies import get_chat_service, get_onboarding_service, require_onboarding_complete
+from api.onboarding.service import OnboardingService
+from api.users.schemas import UserOut
 from fastapi import APIRouter, Depends, status
 
 router = APIRouter(
     prefix="/v1/agent",
     tags=["agent"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_onboarding_complete)],
 )
 
 
@@ -42,13 +43,16 @@ async def create_session(
 )
 async def chat(
     payload: ChatRequest,
-    current_user: UserOut = Depends(get_current_user),
+    current_user: UserOut = Depends(require_onboarding_complete),
+    onboarding_service: OnboardingService = Depends(get_onboarding_service),
     chat_service: ChatService = Depends(get_chat_service),
 ) -> ChatResponse:
+    profile = onboarding_service.get_academic_profile(current_user.id)
+    university_name = profile.university_name if profile else ""
     return chat_service.reply(
         payload,
         user_id=current_user.id,
-        university_name=current_user.university,
+        university_name=university_name,
     )
 
 

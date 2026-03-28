@@ -13,7 +13,6 @@ from api.chat.schemas import (
 
 from common.agents.orchestrator.agent import OrchestratorAgent
 from common.agents.orchestrator.schemas import OrchestratorInput
-from common.core.enums import University
 from common.core.log_config import get_logger
 from common.core.protocols import IMemoryService
 from common.core.schemas import MemoryEntry, ResponseMetadata
@@ -59,7 +58,7 @@ class ChatService:
         self,
         payload: ChatRequest,
         user_id: str = "",
-        university_name: University = University.LIU,
+        university_name: str = "",
     ) -> ChatResponse:
         session_id = payload.session_id
         state = self._memory_service.get_session_state(session_id)

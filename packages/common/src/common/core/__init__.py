@@ -2,7 +2,7 @@
 
 from .config import AgentConfig, RagConfig, Settings, get_settings
 from .constants import DEFAULT_SYSTEM_PROMPT
-from .enums import Major, University
+from .enums import DegreeLevel, Role
 from .exceptions import (
     AppError,
     AuthenticationError,
@@ -31,8 +31,8 @@ __all__ = [
     "RagConfig",
     "AgentConfig",
     # Enums
-    "University",
-    "Major",
+    "Role",
+    "DegreeLevel",
     # Exceptions
     "AppError",
     "AuthenticationError",

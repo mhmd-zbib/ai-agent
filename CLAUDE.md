@@ -88,9 +88,12 @@ agent-assitant/
 │   │   ├── Dockerfile
 │   │   └── src/api/
 │   │       ├── main.py          # FastAPI app + composition root
-│   │       ├── dependencies.py  # FastAPI DI providers
-│   │       ├── auth/            # JWT auth (service, router, schemas, config)
-│   │       ├── chat/            # Chat endpoint
+│   │       ├── dependencies.py  # DI providers (get_current_user, require_admin, require_onboarding_complete)
+│   │       ├── auth/            # JWT/crypto only — no DB (POST /v1/auth/login)
+│   │       ├── users/           # User profiles + RBAC (register, me, admin list/role-update)
+│   │       ├── admin/           # Academic ref-data CRUD (universities/faculties/majors/courses)
+│   │       ├── onboarding/      # Student onboarding — uses admin IDs, not hardcoded enums
+│   │       ├── chat/            # Chat endpoint (requires onboarding_complete)
 │   │       ├── documents/       # Document upload (router, service, repository)
 │   │       ├── memory/          # Short + long-term memory
 │   │       ├── search/          # RAG service

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from api.auth.schemas import UserOut
+from api.users.schemas import UserOut
 from api.dependencies import get_current_user, get_document_upload_service
 from api.documents.schemas import (
     BucketInfoRequest,
