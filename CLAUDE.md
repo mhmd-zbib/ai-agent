@@ -6,132 +6,281 @@ Update this file when you make architectural changes to the project.
 
 ---
 
-## Commands
+## Quick Start
 
 ```bash
-# Install dependencies
+# Install all workspace packages
 uv sync --dev
 
 # Start infrastructure (postgres, redis, rabbitmq, minio, qdrant)
 docker compose up -d
 
-# Run API server with hot reload
-uv run uvicorn api.main:app --app-dir packages/api --reload
+# Start FastAPI backend (port 8000)
+uv run uvicorn api.main:app --reload
 
-# Run ingestion API server
-uv run uvicorn ingestion.api.main:app --app-dir packages/ingestion --reload
+# Start RabbitMQ worker for document ingestion (Terminal 2)
+uv run python -m pipeline.main
 
-# Run all tests (no infrastructure needed — everything is mocked)
+# Health check
+curl http://localhost:8000/health
+
+# Run all tests
 uv run pytest -q
 
-# Run a single test file
-uv run pytest tests/test_chat.py -v
-
-# Run a specific test
-uv run pytest tests/test_chat.py::test_name -v
-
 # Run with coverage
-uv run pytest --cov=packages --cov-fail-under=85 tests/
+uv run pytest --cov=packages/api/src --cov=packages/pipeline/src --cov=packages/common/src --cov-fail-under=85 tests/
 
 # Lint and format
 uv run ruff check packages/
 uv run ruff format packages/
 
-# Type check
-uv run mypy packages/shared packages/api packages/ingestion
+# Type check (strict mode)
+uv run mypy packages/common/src packages/api/src packages/pipeline/src --strict
 ```
-
-**Known pre-existing failures**:
-- `tests/test_exceptions.py` — 2 tests about `x-request-id` header echoing.
-- `tests/test_action_agent.py`, `tests/test_agent_service.py` — error message wording mismatches from staged `agent_service.py` changes.
-- `tests/test_chat_service_tool_content.py` — fake `IMemoryService` missing `get_metadata`/`set_metadata` from staged `protocols.py` changes.
 
 ---
 
-## Architecture
+## Architecture (Post-Migration: March 28, 2026)
 
-uv workspace monorepo with three installable packages:
+The monorepo uses a `packages/` structure with three packages under a uv workspace.
 
-```
-packages/
-├── shared/     — infra drivers + cross-cutting contracts
-├── api/        — agent/chat FastAPI app
-└── ingestion/  — 4-stage document ingestion pipeline + thin FastAPI wrapper
-```
-
-Dependency flow (still hexagonal):
+### Directory Structure
 
 ```
-api.modules/       → shared/           ← shared.infrastructure/
-ingestion/         → shared/
-(business)           (contracts)         (technology drivers)
+agent-assitant/
+├── packages/
+│   ├── common/                  # Shared library (core, infra, agents, tools)
+│   │   ├── pyproject.toml
+│   │   └── src/common/
+│   │       ├── core/            # Contracts layer (NO external drivers)
+│   │       │   ├── config.py    # Settings, RagConfig, AgentConfig
+│   │       │   ├── schemas.py   # Pydantic models (AIResponse, MemoryEntry, etc.)
+│   │       │   ├── protocols.py # Abstract interfaces (IVectorClient, etc.)
+│   │       │   ├── exceptions.py
+│   │       │   ├── constants.py # Prompts, system messages
+│   │       │   ├── log_config.py
+│   │       │   ├── llm_utils.py
+│   │       │   ├── utils.py
+│   │       │   └── enums.py
+│   │       ├── models/          # Domain models (agent.py, document.py, job.py)
+│   │       ├── infra/           # Driver implementations
+│   │       │   ├── db/          # postgres, redis, qdrant, pinecone, factory
+│   │       │   ├── llm/         # base, openai, anthropic
+│   │       │   ├── storage/     # minio
+│   │       │   ├── messaging/   # rabbitmq
+│   │       │   └── embedder.py
+│   │       ├── agents/          # Agent library (importable, not a service)
+│   │       │   ├── core/        # BaseAgent, AgentContext, AgentResult, MemoryAgent
+│   │       │   ├── orchestrator/
+│   │       │   ├── research/
+│   │       │   ├── extraction/
+│   │       │   ├── document/
+│   │       │   └── runner.py
+│   │       └── tools/           # Tool abstraction and registry
+│   │           ├── base.py
+│   │           ├── registry.py
+│   │           ├── exceptions.py
+│   │           ├── __init__.py  # get_tool_registry()
+│   │           └── implementations/
+│   │
+│   ├── api/                     # FastAPI backend (HTTP layer)
+│   │   ├── pyproject.toml
+│   │   ├── Dockerfile
+│   │   └── src/api/
+│   │       ├── main.py          # FastAPI app + composition root
+│   │       ├── dependencies.py  # FastAPI DI providers
+│   │       ├── auth/            # JWT auth (service, router, schemas, config)
+│   │       ├── chat/            # Chat endpoint
+│   │       ├── documents/       # Document upload (router, service, repository)
+│   │       ├── memory/          # Short + long-term memory
+│   │       ├── search/          # RAG service
+│   │       └── health/          # Health check
+│   │
+│   └── pipeline/                # RabbitMQ worker (NO HTTP, pure consumer)
+│       ├── pyproject.toml
+│       ├── Dockerfile
+│       └── src/pipeline/
+│           ├── main.py          # Worker entry point
+│           └── ingestion/       # 4-stage document ingestion pipeline
+│               ├── service.py
+│               ├── schemas.py
+│               └── stages/      # parser, chunker, metadata, storage
+│
+├── docs/                        # Architecture docs
+├── pyproject.toml               # Workspace root + tool config
+└── CLAUDE.md
 ```
 
-No package imports from another package except `api → shared` and `ingestion → shared`. All wiring happens in `packages/api/api/main.py` (composition root for the chat API).
+### Dependency Graph
 
-### Package → Python namespace mapping
+```
+common.core (contracts)
+  ↓
+common.infra (drivers) + common.tools (tool system)
+  ↓
+common.agents (reusable library)
+  ↓
+api (HTTP) + pipeline (worker)
+```
 
-| Package dir | Python import prefix |
-|-------------|----------------------|
-| `packages/shared/shared/` | `shared.*` |
-| `packages/api/api/` | `api.*` |
-| `packages/ingestion/ingestion/` | `ingestion.*` |
-| `packages/agents/agents/` | `agents.*` |
-| `packages/pipeline/pipeline/` | `pipeline.*` |
+**Rules:**
+- ✅ `common.core` has NO external drivers (only Pydantic, structlog, PyJWT)
+- ✅ `common.infra` depends on `common.core` only
+- ✅ `common.tools` depends on `common.core` only
+- ✅ `common.agents` depends on `common.core` + `common.infra` + `common.tools`
+- ✅ `api` depends on `common` (all of core/infra/tools/agents)
+- ✅ `pipeline` depends on `common` (core/infra only)
+- ✅ `api` and `pipeline` are independent (can deploy separately)
 
-### Layer Responsibilities
+### Import Namespaces
 
-| Layer | Path | Responsibility |
-|-------|------|----------------|
-| Modules | `packages/api/api/modules/` | Business logic only. No infrastructure imports. |
-| Shared contracts | `packages/shared/shared/` | Protocols, schemas, config, logging, exceptions. |
-| Ingestion pipeline | `packages/ingestion/ingestion/` | 4-stage document ingestion (parse → chunk → metadata → store). |
-| Agents | `packages/agents/agents/` | Agent orchestration and execution. |
-| Pipeline | `packages/pipeline/pipeline/` | Job pipeline processing. |
+```python
+# Core contracts
+from common.core.config import Settings, AgentConfig, RagConfig
+from common.core.schemas import AIResponse, AgentInput
+from common.core.protocols import IVectorClient, IEmbeddingClient
+from common.core.exceptions import AppError
+from common.core.constants import ORCHESTRATOR_SYSTEM_PROMPT
+from common.core.enums import University
+from common.core.log_config import get_logger
 
-### Modules
+# Domain models
+from common.models.document import Document
+from common.models.agent import AgentModel
+from common.models.job import Job
 
-- **`chat/`** — HTTP session flow: load memory → optional RAG → agent → persist memory.
-- **`agent/`** — LLM orchestration: prompt → call LLM → if tool call, execute → re-call LLM.
-- **`memory/`** — Dual-tier session storage: Redis (hot, TTL=3600s) + PostgreSQL (cold). Cache-aside + write-through.
-- **`rag/`** — Retrieval: query vector DB → optional rerank → return context for chat.
-- **`tools/`** — Plugin registry. Tools extend `BaseTool`, register in `packages/api/api/main.py`, and expose an OpenAI function schema.
-- **`embeddings/`** — Redis-backed caching layer over the embeddings API.
-- **`users/`** — JWT auth (HS256 via PyJWT + bcrypt passwords).
+# Infra drivers
+from common.infra.db.postgres import create_postgres_engine
+from common.infra.db.factory import create_vector_client
+from common.infra.llm.openai import OpenAIClient
+from common.infra.embedder import Embedder
+from common.infra.storage.minio import MinioStorageClient
+from common.infra.messaging.rabbitmq import RabbitMQPublisher
 
-### RAG Pipeline (Event-Driven)
+# Tools
+from common.tools import get_tool_registry
+from common.tools.base import BaseTool
+from common.tools.registry import ToolRegistry
+
+# Agents
+from common.agents.orchestrator.agent import OrchestratorAgent
+from common.agents.research.agent import ReasoningAgent, RetrievalAgent
+from common.agents.core.context import AgentContext, AgentResult
+from common.agents.core.memory import MemoryAgent
+
+# API layer (was app.*)
+from api.chat.service import ChatService
+from api.auth.service import AuthService
+
+# Pipeline layer (unchanged)
+from pipeline.ingestion.service import ingest_document
+```
+
+---
+
+## Common Tasks
+
+### Adding a New Tool Implementation
+
+1. Create `packages/common/src/common/tools/implementations/my_tool.py` with `MyTool(BaseTool)`
+2. Register in `packages/common/src/common/tools/__init__.py` `get_tool_registry()`: `registry.register(MyTool())`
+3. Export in `packages/common/src/common/tools/implementations/__init__.py`
+4. Use in agent: `tool_registry.resolve("my_tool")`
+
+### Adding a New Database Driver
+
+1. Create `packages/common/src/common/infra/db/my_driver.py` implementing `IVectorClient`
+2. Update `packages/common/src/common/infra/db/factory.py` to support new driver
+3. Reference in `common.core.config.Settings` (e.g., `vector_backend = "my_driver"`)
+
+### Running Tests for a Specific Layer
+
+```bash
+# Test just the api layer
+uv run pytest tests/ -k "test_api" -v
+
+# Test infra drivers
+uv run pytest tests/ -k "test_infra" -v
+
+# Test common/core contracts
+uv run pytest tests/test_core/ -v
+```
+
+### Debugging Imports
+
+```bash
+# Check if module can be imported
+uv run python -c "from api.chat.service import ChatService; print('OK')"
+uv run python -c "from common.core.config import Settings; print('OK')"
+
+# Find where a symbol comes from
+uv run python -c "import api.chat.service; print(api.chat.service.__file__)"
+```
+
+---
+
+## Troubleshooting
+
+### "ModuleNotFoundError: No module named 'core'"
+
+**Cause:** Old import using `from core.*`
+**Fix:** Replace with `from common.core.*`
+
+### "ModuleNotFoundError: No module named 'infra'"
+
+**Cause:** Old import using `from infra.*`
+**Fix:** Replace with `from common.infra.*`
+
+### "ModuleNotFoundError: No module named 'app'"
+
+**Cause:** Old import using `from app.*`
+**Fix:** Replace with `from api.*`
+
+### Circular import error
+
+**Cause:** Dependency graph violation (e.g., `common.core` importing from `common.infra`)
+**Fix:** Check dependency direction: common.core → common.infra → common.agents → (api/pipeline)
+
+### uv sync fails with dependency conflicts
+
+**Cause:** Workspace members or sources misconfigured
+**Fix:** Verify root `pyproject.toml` has:
+```toml
+[tool.uv.workspace]
+members = ["packages/api", "packages/pipeline", "packages/common"]
+
+[tool.uv.sources]
+common = { workspace = true }
+```
+
+---
+
+## Architecture Notes
+
+**RAG Pipeline (Event-Driven):**
 
 ```
 POST /v1/documents/upload
   → MinIO (presigned upload by client)
-  → complete_upload() publishes DocumentUploadedEvent to documents.fanout exchange
+  → complete_upload() publishes DocumentUploadedEvent to RabbitMQ
      ↓
-Stage 1 (parse_consumer):   download MinIO → parse PDF/DOCX/TXT → ParsedEvent
-Stage 2 (chunk_consumer):   sliding-window chunker (512 tokens, 50 overlap) → ChunkEvent × N
-Stage 3 (embed_consumer):   OpenAI embeddings API → EmbedEvent
-Stage 4 (store_consumer):   upsert to Pinecone/Qdrant (namespace=user_id) → mark complete
+Stage 1 (parser):   download MinIO → parse PDF/DOCX/TXT
+Stage 2 (chunker):  sliding-window chunker (512 tokens, 50 overlap)
+Stage 3 (metadata): extract metadata via Anthropic API
+Stage 4 (storage):  OpenAI embeddings → upsert to Pinecone/Qdrant
 ```
 
-Each queue has a paired DLQ via `x-dead-letter-exchange`. Workers run as daemon threads inside the FastAPI process.
+**FastAPI DI Pattern:**
 
-### FastAPI DI Pattern
+Services are wired in `packages/api/src/api/main.py` and attached to `app.state`. Route handlers use `Depends(get_*)` — never instantiate services directly.
 
-Services are wired in `app/main.py` and attached to `app.state`. `app/shared/deps.py` exposes typed `Depends()` accessors:
+**LLM / Embedding Configuration:**
 
-```python
-def get_chat_service(request: Request) -> ChatService:
-    return request.app.state.chat_service
-```
+Point `OPENAI_BASE_URL` at Ollama or any OpenAI-compatible endpoint. Embedding is independent from chat LLM (use `EMBEDDING_API_KEY`, `EMBEDDING_BASE_URL`, `EMBEDDING_MODEL`).
 
-Route handlers only call `Depends(get_*)` — never instantiate services directly.
+**Vector Backend:**
 
-### LLM / Embedding Configuration
-
-The OpenAI SDK is used for all providers. Point `OPENAI_BASE_URL` at Ollama or any OpenAI-compatible endpoint. Embedding model configuration is independent from chat LLM (use `EMBEDDING_API_KEY`, `EMBEDDING_BASE_URL`, `EMBEDDING_MODEL`), enabling mixed providers (e.g., Ollama for chat + OpenAI for embeddings).
-
-### Vector Backend
-
-Switchable via `VECTOR_BACKEND=qdrant|pinecone`. Backend is selected in `app/main.py` and injected into `StoreService` and `VectorRepository`. Both implement the same `IVectorClient` protocol from `app/infrastructure/vector/base.py`.
+Switchable via `VECTOR_BACKEND=qdrant|pinecone`. Selected in `api/main.py` and injected into services via DI.
 
 ---
 
@@ -152,7 +301,7 @@ Switchable via `VECTOR_BACKEND=qdrant|pinecone`. Backend is selected in `app/mai
 - **Pydantic v2** for all data validation and serialization.
 - **No `Any` type** unless absolutely unavoidable and explicitly justified with a comment.
 - Use `|` union syntax — write `str | None`, not `Optional[str]`.
-- All constants go in `app/shared/config.py` via `pydantic-settings`. No hardcoded strings or values.
+- All constants go in `packages/common/src/common/core/constants.py`. No hardcoded strings or values.
 - Use `__all__` in every `__init__.py` to control public API.
 
 ---
@@ -164,50 +313,28 @@ Switchable via `VECTOR_BACKEND=qdrant|pinecone`. Backend is selected in `app/mai
 - **Use dependency injection** for DB sessions, auth, AI clients, and config. Never instantiate these inside route handlers.
 - **Never put business logic in route handlers.** Routes call services. Services call repositories.
 - Always return typed Pydantic response schemas — never return raw dicts or ORM objects directly.
-- Use `HTTPException` with clear `detail` messages. Define custom exception handlers in `app/shared/exceptions.py`.
-
-```python
-@router.post(
-    "/completions",
-    summary="Generate a completion",
-    description="Sends a prompt to the configured LLM and returns the response.",
-    response_model=CompletionResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def create_completion(
-    payload: CompletionRequest,
-    service: CompletionService = Depends(get_completion_service),
-) -> CompletionResponse:
-    return await service.complete(payload)
-```
 
 ---
 
 ## AI / LLM Engineering Rules
 
-- **All AI client logic lives in `app/infrastructure/llm/` or `app/infrastructure/embedding/`.** No SDK calls in modules or routes.
-- **Wrap every AI client in an abstract interface** (see `app/shared/llm/base.py`). Makes it mockable and swappable.
+- **All AI client logic lives in `common/infra/llm/`.** No SDK calls in routes or services directly.
+- **Wrap every AI client in an abstract interface** (see `common/infra/llm/base.py`). Makes it mockable and swappable.
 - **Always set timeouts** on AI API calls. Never let them hang indefinitely.
 - **Log every AI request and response** with token counts, latency, and model name at DEBUG level.
-- **Handle AI-specific errors explicitly:** rate limits, context length exceeded, model unavailable.
-- **Prompt templates are code.** Store them in `app/shared/constants.py` or versioned files — never hardcode prompts inline.
-- Implement retry logic with exponential backoff for transient AI API failures using `tenacity`.
+- **Prompt templates are code.** Store them in `common/core/constants.py` — never hardcode prompts inline.
 
 ---
 
 ## Testing Rules
 
 - **Every function, service, and route must have tests.**
-- **Test file mirrors source file:** `app/modules/chat/services/chat_service.py` → `tests/test_chat_service.py`
-- **Minimum coverage: 85%.** Run `pytest --cov=app --cov-fail-under=85`.
+- **Minimum coverage: 85%.** Run `pytest --cov=packages/.../src --cov-fail-under=85`.
 - Tests must be **deterministic.** No random data, no time-dependent logic without mocking.
 - Use **pytest** exclusively with **pytest-asyncio** (`asyncio_mode = "auto"`).
 - Name tests: `test_<function>_<scenario>_<expected_outcome>`.
 - No I/O in unit tests — mock everything external with `unittest.mock.AsyncMock` or `MagicMock`.
-- Use `pytest.mark.parametrize` for multiple input variants.
 - **Never call real AI APIs, databases, or queues in tests.**
-- For integration tests, use **testcontainers** for real PostgreSQL/Redis. Mock external AI APIs via `respx` or `pytest-httpx`.
-- For E2E tests, use FastAPI's `AsyncClient` from `httpx`.
 
 ---
 
@@ -216,7 +343,6 @@ async def create_completion(
 - **The entire stack is async.** Use `async def` for all route handlers, services, and repository methods.
 - Never use blocking I/O inside async functions — no `requests`, no synchronous file reads.
 - Use `asyncio.gather` for concurrent independent operations.
-- Use `anyio.to_thread.run_sync` to wrap unavoidably blocking calls.
 - DB sessions must use `AsyncSession` from `sqlalchemy.ext.asyncio`.
 
 ---
@@ -233,8 +359,8 @@ async def create_completion(
 
 ## Error Handling
 
-- All custom exceptions inherit from `AppException` in `app/shared/exceptions.py`.
-- Register global exception handlers in `app/main.py` via `app.add_exception_handler`.
+- All custom exceptions inherit from `AppError` in `common/core/exceptions.py`.
+- Register global exception handlers in `api/main.py` via `app.add_exception_handler`.
 - Never expose internal stack traces or DB errors to API consumers.
 - Always return errors in a consistent shape: `{ "error": { "code": "...", "message": "..." } }`.
 
@@ -242,7 +368,7 @@ async def create_completion(
 
 ## Logging
 
-- Use **structured JSON logging** in production via `structlog` (configured in `app/shared/logging.py`).
+- Use **structured JSON logging** in production via `structlog` (configured in `common/core/log_config.py`).
 - Log levels: `DEBUG` for AI calls and internals, `INFO` for requests, `WARNING` for recoverable errors, `ERROR` for failures.
 - Every log entry must include: `request_id`, `service`, `timestamp`.
 
@@ -257,11 +383,11 @@ async def create_completion(
 
 ## Adding New Features
 
-**New tool**: Subclass `BaseTool` in `app/modules/tools/implementations/`, implement `run()` and `to_openai_schema()`, register in `app/main.py`.
+**New tool**: Subclass `BaseTool` in `packages/common/src/common/tools/implementations/`, implement `run()` and `to_openai_schema()`, register in `tools/__init__.py`.
 
-**New module**: Create `app/modules/<name>/` with `services/`, `schemas/`, optionally `router.py`. Wire in `app/main.py`. Define cross-module protocols in `app/shared/protocols.py`, not in the module itself.
+**New API module**: Create `packages/api/src/api/<name>/` with `service.py`, `schemas.py`, `router.py`. Wire in `api/main.py`.
 
-**New infrastructure driver**: Implement the relevant protocol from `app/infrastructure/*/base.py`, wire in `app/main.py`.
+**New infrastructure driver**: Implement the relevant protocol from `common/core/protocols.py`, place in `common/infra/`, wire in `api/main.py`.
 
 ---
 
@@ -270,10 +396,10 @@ async def create_completion(
 Every PR must pass:
 
 ```
-uv run pytest --cov=app --cov-fail-under=85
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy app/
+uv run pytest --cov=packages/common/src --cov=packages/api/src --cov=packages/pipeline/src --cov-fail-under=85
+uv run ruff check packages/
+uv run ruff format --check packages/
+uv run mypy packages/common/src packages/api/src --strict
 ```
 
 ---
@@ -285,30 +411,13 @@ uv run mypy app/
 - Imports ordered: stdlib → third-party → local, separated by blank lines.
 - No commented-out code in PRs.
 
-```toml
-[tool.ruff]
-line-length = 100
-target-version = "py311"
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
-
-[tool.mypy]
-strict = true
-python_version = "3.11"
-
-[tool.pytest.ini_options]
-pythonpath = ["."]
-asyncio_mode = "auto"
-```
-
 ---
 
 ## What Claude Should Never Do
 
 - Never generate code without tests.
 - Never put logic in route handlers — always delegate to a service.
-- Never call AI APIs directly from outside `app/infrastructure/llm/` or `app/infrastructure/embedding/`.
+- Never call AI APIs directly from outside `common/infra/llm/`.
 - Never use `print()` — always use the structured logger.
 - Never use `time.sleep()` in async code — use `asyncio.sleep()`.
 - Never ignore a failing test to make CI pass.

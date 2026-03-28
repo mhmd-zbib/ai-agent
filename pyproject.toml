@@ -1,8 +1,11 @@
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["packages/api", "packages/pipeline", "packages/common"]
+
+[tool.uv.sources]
+common = { workspace = true }
 
 [tool.pytest.ini_options]
-pythonpath = ["packages/shared", "packages/api", "packages/agents", "packages/pipeline", "packages/ingestion"]
+pythonpath = ["packages/common/src", "packages/api/src", "packages/pipeline/src"]
 asyncio_mode = "auto"
 
 [tool.ruff]
